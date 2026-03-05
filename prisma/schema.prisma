@@ -1,0 +1,78 @@
+// Prisma schema for Labor Relations Central Intelligence
+// - Per-user private KBs
+// - System KBs (Central, CBAs Shared)
+// - Document metadata for shared CBA uploads
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum KBVisibility {
+  PRIVATE
+  SHARED
+  SYSTEM
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  knowledgeBases KnowledgeBase[]
+  documents      Document[]
+}
+
+model KnowledgeBase {
+  id            String       @id @default(cuid())
+  name          String
+  vectorStoreId String
+  visibility    KBVisibility @default(PRIVATE)
+
+  // null = system KB (Central, CBAs Shared)
+  ownerUserId   String?
+  ownerUser     User?        @relation(fields: [ownerUserId], references: [id])
+
+  createdAt     DateTime     @default(now())
+
+  documents     Document[]
+
+  @@index([ownerUserId])
+  @@index([visibility])
+  @@unique([ownerUserId, name])
+}
+
+model Document {
+  id            String   @id @default(cuid())
+
+  ownerUserId   String
+  ownerUser     User     @relation(fields: [ownerUserId], references: [id])
+
+  kbId          String
+  kb            KnowledgeBase @relation(fields: [kbId], references: [id])
+
+  openaiFileId  String
+  filename      String
+  createdAt     DateTime @default(now())
+
+  // CBA metadata (optional; used when "Share to CBAs" is selected)
+  isCba         Boolean  @default(false)
+  state         String?
+  localUnion    String?
+  employer      String?
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+
+  // Whether this document was also added to the system "CBAs" KB
+  sharedToCbas  Boolean  @default(false)
+
+  @@index([kbId])
+  @@index([ownerUserId])
+  @@index([isCba])
+}

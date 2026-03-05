@@ -50,4 +50,3 @@ prisma/dev.db-journal
 # runtime
 tmp_uploads/
 kb_user_uploads/
-data/
