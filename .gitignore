@@ -42,3 +42,12 @@ next-env.d.ts
 
 # logs
 logs/
+
+# local databases
+prisma/dev.db
+prisma/dev.db-journal
+
+# runtime
+tmp_uploads/
+kb_user_uploads/
+data/
