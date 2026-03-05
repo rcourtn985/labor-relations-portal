@@ -1,7 +1,4 @@
-import { promises as fs } from "fs";
-import path from "path";
-
-const KB_INDEX_PATH = path.join(process.cwd(), "data", "kb-index.json");
+import { prisma } from "@/lib/prisma";
 
 export type KBIndex = {
   central: { id: "central"; name: string; vectorStoreId: string };
@@ -9,17 +6,39 @@ export type KBIndex = {
 };
 
 export async function readKBIndex(): Promise<KBIndex> {
-  const raw = await fs.readFile(KB_INDEX_PATH, "utf8");
-  return JSON.parse(raw);
+  const [central, userKbs] = await Promise.all([
+    prisma.knowledgeBase.findUnique({ where: { id: "central" } }),
+    prisma.knowledgeBase.findMany({
+      where: { visibility: { not: "SYSTEM" } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  if (!central) throw new Error("System KB missing: central (run: npx prisma db seed)");
+
+  return {
+    central: {
+      id: "central",
+      name: central.name,
+      vectorStoreId: central.vectorStoreId,
+    },
+    userKbs: userKbs.map((k) => ({
+      id: k.id,
+      name: k.name,
+      vectorStoreId: k.vectorStoreId,
+      createdAt: k.createdAt.toISOString(),
+    })),
+  };
 }
 
 export async function resolveVectorStoreId(kbId?: string): Promise<string> {
-  const index = await readKBIndex();
+  const id = !kbId || kbId === "central" ? "central" : kbId;
 
-  if (!kbId || kbId === "central") return index.central.vectorStoreId;
+  const kb = await prisma.knowledgeBase.findUnique({ where: { id } });
+  if (!kb) throw new Error(`Unknown kbId: ${id}`);
 
-  const match = index.userKbs.find((k) => k.id === kbId);
-  if (!match) throw new Error(`Unknown kbId: ${kbId}`);
+  // This helps you catch "seed ran but no vector store id set yet"
+  if (!kb.vectorStoreId) throw new Error(`KB ${id} has no vectorStoreId set yet`);
 
-  return match.vectorStoreId;
+  return kb.vectorStoreId;
 }
