@@ -1,0 +1,21 @@
+{
+  "central": {
+    "id": "central",
+    "name": "Central Intelligence",
+    "vectorStoreId": "vs_69a5a69480d481918e9911f2974b60cf"
+  },
+  "userKbs": [
+    {
+      "id": "kb_1772549767870_60ac41e7e07fc",
+      "name": "Louisiana",
+      "vectorStoreId": "vs_69a6f665c6108191a0a52926f75334ec",
+      "createdAt": "2026-03-03T14:56:07.870Z"
+    },
+    {
+      "id": "kb_1772551652846_ef80e54f57e35",
+      "name": "Georgia",
+      "vectorStoreId": "vs_69a6fdcb30208191b12d8cd4ae07c0dc",
+      "createdAt": "2026-03-03T15:27:32.846Z"
+    }
+  ]
+}
