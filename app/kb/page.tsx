@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 type KBEntry = { id: string; name: string; vectorStoreId: string };
-type KBIndexResponse = { central: KBEntry; userKbs: KBEntry[] };
+type KBIndexResponse = { central: KBEntry; systemKbs?: KBEntry[]; userKbs: KBEntry[] };
 
 type KBFilesResponse = {
   kbId: string;
@@ -269,6 +269,15 @@ export default function KBManagerPage() {
           }}
         >
           <option value="central">{kbIndex?.central?.name ?? "Central Intelligence"}</option>
+
+          {(kbIndex?.systemKbs ?? [])
+            .filter((k) => k.id !== "central")
+            .map((kb) => (
+              <option key={kb.id} value={kb.id}>
+                {kb.name}
+              </option>
+            ))}
+
           {(kbIndex?.userKbs ?? []).map((kb) => (
             <option key={kb.id} value={kb.id}>
               {kb.name}

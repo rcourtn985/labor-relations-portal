@@ -47,14 +47,10 @@ logs/
 prisma/dev.db
 prisma/dev.db-journal
 
-# runtime
+# runtime / uploads / content
 tmp_uploads/
 kb_user_uploads/
-
-# local/shared content folders (data files)
 kb_cbas_shared/
-kb_user_uploads/
-tmp_uploads/
 
 # generated prisma client (recommended not to commit)
 lib/generated/prisma/
