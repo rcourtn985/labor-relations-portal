@@ -5,26 +5,19 @@ import path from "path";
 import { promises as fs } from "fs";
 import fssync from "fs";
 import formidable from "formidable";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs"; // ensure Node runtime (needed for fs/formidable)
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const KB_INDEX_PATH = path.join(process.cwd(), "data", "kb-index.json");
 const UPLOAD_TMP_DIR = path.join(process.cwd(), "tmp_uploads");
 
 // Keep the MVP allowlist tight (you can expand later)
 const ALLOWED_EXTS = new Set([".pdf", ".doc", ".docx", ".txt"]);
 
-async function readIndex() {
-  const raw = await fs.readFile(KB_INDEX_PATH, "utf8");
-  return JSON.parse(raw);
-}
-
-async function writeIndex(index: any) {
-  await fs.mkdir(path.dirname(KB_INDEX_PATH), { recursive: true });
-  await fs.writeFile(KB_INDEX_PATH, JSON.stringify(index, null, 2), "utf8");
-}
+// For now (no auth yet), we attach created KBs + docs to the seeded "system" user.
+const DEFAULT_OWNER_USER_ID = "system";
 
 function safeId() {
   return `kb_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -86,12 +79,16 @@ export async function POST(req: Request) {
     }
 
     // Prevent duplicate KB names (simple MVP rule)
-    const index = await readIndex();
-    const dup =
-      index.central?.name === name ||
-      (index.userKbs ?? []).some((k: any) => k.name === name);
+    // NOTE: your schema enforces @@unique([ownerUserId, name]) so this matches reality.
+    const existing = await prisma.knowledgeBase.findFirst({
+      where: {
+        ownerUserId: DEFAULT_OWNER_USER_ID,
+        name,
+      },
+      select: { id: true },
+    });
 
-    if (dup) {
+    if (existing) {
       return NextResponse.json(
         { error: "A knowledge base with that name already exists." },
         { status: 400 }
@@ -102,6 +99,8 @@ export async function POST(req: Request) {
     const vs = await openai.vectorStores.create({ name: `User KB: ${name}` });
 
     // Upload each file to OpenAI Files API and attach
+    const createdDocs: { openaiFileId: string; filename: string }[] = [];
+
     for (const f of uploadedFiles) {
       const filePath = f.filepath || f.path; // formidable v2/v3 differences
       if (!filePath) {
@@ -109,20 +108,21 @@ export async function POST(req: Request) {
       }
 
       const original =
-        f.originalFilename ||
-        f.name ||
-        path.basename(filePath) ||
-        `upload_${Date.now()}`;
+        f.originalFilename || f.name || path.basename(filePath) || `upload_${Date.now()}`;
 
       const ext = path.extname(original).toLowerCase();
       if (!ALLOWED_EXTS.has(ext)) {
         return NextResponse.json(
-          { error: `Unsupported file type: "${ext || "(none)"}". Allowed: ${Array.from(ALLOWED_EXTS).join(", ")}` },
+          {
+            error: `Unsupported file type: "${ext || "(none)"}". Allowed: ${Array.from(
+              ALLOWED_EXTS
+            ).join(", ")}`,
+          },
           { status: 400 }
         );
       }
 
-      // ✅ Key fix: force OpenAI to receive the original filename (and extension)
+      // Force OpenAI to receive the original filename (and extension)
       const fileForOpenAI = await toFile(fssync.createReadStream(filePath), original);
 
       const openaiFile = await openai.files.create({
@@ -131,6 +131,11 @@ export async function POST(req: Request) {
       });
 
       await openai.vectorStores.files.create(vs.id, { file_id: openaiFile.id });
+
+      createdDocs.push({
+        openaiFileId: openaiFile.id,
+        filename: original,
+      });
     }
 
     // Wait for indexing to complete
@@ -141,17 +146,29 @@ export async function POST(req: Request) {
       await sleep(1500);
     }
 
-    // Update kb-index.json
+    // Write to Prisma (replacing kb-index.json)
     const id = safeId();
-    index.userKbs = index.userKbs ?? [];
-    index.userKbs.push({
-      id,
-      name,
-      vectorStoreId: vs.id,
-      createdAt: new Date().toISOString(),
+
+    await prisma.knowledgeBase.create({
+      data: {
+        id,
+        name,
+        vectorStoreId: vs.id,
+        visibility: "PRIVATE",
+        ownerUserId: DEFAULT_OWNER_USER_ID,
+      },
     });
 
-    await writeIndex(index);
+    if (createdDocs.length > 0) {
+      await prisma.document.createMany({
+        data: createdDocs.map((d) => ({
+          ownerUserId: DEFAULT_OWNER_USER_ID,
+          kbId: id,
+          openaiFileId: d.openaiFileId,
+          filename: d.filename,
+        })),
+      });
+    }
 
     return NextResponse.json({ id, name, vectorStoreId: vs.id });
   } catch (e: any) {
