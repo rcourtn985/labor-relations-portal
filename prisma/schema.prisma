@@ -75,4 +75,7 @@ model Document {
   @@index([kbId])
   @@index([ownerUserId])
   @@index([isCba])
+
+  // Prevent duplicate filenames within a KB
+  @@unique([kbId, filename])
 }
