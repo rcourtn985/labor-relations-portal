@@ -1,9 +1,47 @@
 @import "tailwindcss";
 
+/* 
+  Labor Relations Central Intelligence (Overclocked Solutions)
+  Theme system using CSS variables.
+
+  Default: Vaporwave (consistent, readable, branded)
+*/
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Core surfaces */
+  --background: #0b0720;        /* deep space */
+  --foreground: #f2f0ff;        /* near-white lavender */
+  --muted: #c9c4ff;             /* secondary text */
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel-strong: rgba(255, 255, 255, 0.10);
+  --border: rgba(255, 255, 255, 0.16);
+
+  /* Vaporwave accents */
+  --accent: #ff4fd8;            /* neon pink */
+  --accent-2: #33d6ff;          /* neon cyan */
+  --accent-3: #a855f7;          /* neon purple */
+
+  /* Inputs */
+  --input-bg: rgba(0, 0, 0, 0.35);
+  --input-border: rgba(255, 255, 255, 0.20);
+  --input-focus: rgba(51, 214, 255, 0.7);
+
+  /* Buttons */
+  --button-bg: rgba(255, 255, 255, 0.10);
+  --button-bg-hover: rgba(255, 255, 255, 0.16);
+  --button-border: rgba(255, 255, 255, 0.22);
+
+  /* Table */
+  --table-header: rgba(255, 255, 255, 0.10);
+  --table-row: rgba(255, 255, 255, 0.04);
+  --table-row-hover: rgba(255, 255, 255, 0.08);
+
+  /* Nice glow */
+  --glow: 0 0 18px rgba(255, 79, 216, 0.25), 0 0 28px rgba(51, 214, 255, 0.18);
 }
+
+/* If you later want light mode, we can add a [data-theme="light"] block. */
+/* For now, remove the OS-based auto dark swap to avoid readability fights. */
 
 @theme inline {
   --color-background: var(--background);
@@ -12,15 +50,84 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(1200px 800px at 20% 10%, rgba(255, 79, 216, 0.12), transparent 60%),
+              radial-gradient(900px 700px at 80% 20%, rgba(51, 214, 255, 0.12), transparent 55%),
+              radial-gradient(900px 900px at 55% 85%, rgba(168, 85, 247, 0.10), transparent 60%),
+              var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Links */
+a {
+  color: var(--accent-2);
+}
+a:hover {
+  color: var(--accent);
+}
+
+/* Inputs / selects / textareas */
+input, select, textarea {
+  background: var(--input-bg);
+  color: var(--foreground);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+}
+
+input::placeholder, textarea::placeholder {
+  color: rgba(242, 240, 255, 0.65);
+  opacity: 1;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(51, 214, 255, 0.20);
+}
+
+/* Buttons (works for your <button style=...> too if you remove inline bg later) */
+button {
+  color: var(--foreground);
+}
+
+/* Tables */
+table {
+  color: var(--foreground);
+}
+thead th {
+  background: var(--table-header);
+}
+tbody tr {
+  background: var(--table-row);
+}
+tbody tr:hover {
+  background: var(--table-row-hover);
+}
+
+/* Utility: "card" look if you later convert inline styles to className */
+.vw-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--glow);
+  backdrop-filter: blur(8px);
+}
+
+/* Scrollbar (optional, but nice) */
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.20);
+  border-radius: 10px;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
 }

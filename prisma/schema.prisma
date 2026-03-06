@@ -1,6 +1,6 @@
 // Prisma schema for Labor Relations Central Intelligence
 // - Per-user private KBs
-// - System KBs (Central, CBAs Shared)
+// - System KBs (Central, All CBAs)
 // - Document metadata for shared CBA uploads
 
 generator client {
@@ -35,7 +35,7 @@ model KnowledgeBase {
   vectorStoreId String
   visibility    KBVisibility @default(PRIVATE)
 
-  // null = system KB (Central, CBAs Shared)
+  // null = system KB (Central, All CBAs)
   ownerUserId   String?
   ownerUser     User?        @relation(fields: [ownerUserId], references: [id])
 
@@ -61,15 +61,21 @@ model Document {
   filename      String
   createdAt     DateTime @default(now())
 
-  // CBA metadata (optional; used when "Share to CBAs" is selected)
+  // CBA metadata (optional; captured when a user marks an upload as a CBA)
   isCba         Boolean  @default(false)
+
+  // New metadata
+  chapter       String?
+  cbaType       String?
+
+  // Existing metadata (state can hold comma-separated list for "State(s)" MVP)
   state         String?
   localUnion    String?
   employer      String?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
 
-  // Whether this document was also added to the system "CBAs" KB
+  // Whether this document was also added to the system "All CBAs" KB
   sharedToCbas  Boolean  @default(false)
 
   @@index([kbId])

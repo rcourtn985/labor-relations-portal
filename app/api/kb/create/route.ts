@@ -27,6 +27,37 @@ async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function firstField(fields: any, key: string): string | undefined {
+  const v = fields?.[key];
+  if (Array.isArray(v)) return v[0];
+  if (typeof v === "string") return v;
+  return undefined;
+}
+
+function parseBool(v: string | undefined): boolean {
+  if (!v) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
+
+async function getVectorStoreAttachedFilenames(vectorStoreId: string): Promise<Set<string>> {
+  const names = new Set<string>();
+  const list = await openai.vectorStores.files.list(vectorStoreId, { limit: 100 });
+  const items = list.data ?? [];
+  for (const it of items) {
+    const fileId = (it as any)?.id;
+    if (!fileId) continue;
+    try {
+      const f = await openai.files.retrieve(fileId);
+      const filename = ((f as any)?.filename ?? (f as any)?.name ?? "").trim();
+      if (filename) names.add(filename);
+    } catch {
+      // best effort
+    }
+  }
+  return names;
+}
+
 // Helper: parse multipart/form-data with formidable
 async function parseForm(req: Request): Promise<{ fields: any; files: any }> {
   await fs.mkdir(UPLOAD_TMP_DIR, { recursive: true });
@@ -64,12 +95,20 @@ export async function POST(req: Request) {
 
     const { fields, files } = await parseForm(req);
 
-    const nameRaw = fields?.name;
-    const name = Array.isArray(nameRaw) ? nameRaw[0] : nameRaw;
+    const name = firstField(fields, "name");
 
     if (!name || typeof name !== "string") {
       return NextResponse.json({ error: "Missing 'name'." }, { status: 400 });
     }
+
+    // CBA flags + metadata (applies to all files in this create action for MVP)
+    const isCba = parseBool(firstField(fields, "isCba"));
+    const shareToCbas = parseBool(firstField(fields, "shareToCbas"));
+
+    const chapter = (firstField(fields, "chapter") ?? "").trim() || null;
+    const localUnion = (firstField(fields, "localUnion") ?? "").trim() || null;
+    const cbaType = (firstField(fields, "cbaType") ?? "").trim() || null;
+    const state = (firstField(fields, "state") ?? "").trim() || null; // can be "LA, MS"
 
     const fileField = files?.files;
     uploadedFiles = Array.isArray(fileField) ? fileField : fileField ? [fileField] : [];
@@ -79,12 +118,8 @@ export async function POST(req: Request) {
     }
 
     // Prevent duplicate KB names (simple MVP rule)
-    // NOTE: your schema enforces @@unique([ownerUserId, name]) so this matches reality.
     const existing = await prisma.knowledgeBase.findFirst({
-      where: {
-        ownerUserId: DEFAULT_OWNER_USER_ID,
-        name,
-      },
+      where: { ownerUserId: DEFAULT_OWNER_USER_ID, name },
       select: { id: true },
     });
 
@@ -95,7 +130,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create vector store
+    // Create vector store for this KB
     const vs = await openai.vectorStores.create({ name: `User KB: ${name}` });
 
     // Upload each file to OpenAI Files API and attach
@@ -146,7 +181,7 @@ export async function POST(req: Request) {
       await sleep(1500);
     }
 
-    // Write to Prisma (replacing kb-index.json)
+    // Create KB row
     const id = safeId();
 
     await prisma.knowledgeBase.create({
@@ -159,15 +194,96 @@ export async function POST(req: Request) {
       },
     });
 
-    if (createdDocs.length > 0) {
-      await prisma.document.createMany({
-        data: createdDocs.map((d) => ({
-          ownerUserId: DEFAULT_OWNER_USER_ID,
-          kbId: id,
-          openaiFileId: d.openaiFileId,
-          filename: d.filename,
-        })),
+    // Create Document rows for the new KB (per-row create to play nice with uniqueness)
+    for (const d of createdDocs) {
+      try {
+        await prisma.document.create({
+          data: {
+            ownerUserId: DEFAULT_OWNER_USER_ID,
+            kbId: id,
+            openaiFileId: d.openaiFileId,
+            filename: d.filename,
+            isCba,
+            chapter,
+            localUnion,
+            cbaType,
+            state,
+            sharedToCbas: isCba && shareToCbas,
+          },
+        });
+      } catch (e: any) {
+        // @@unique([kbId, filename]) protection
+        if (e?.code === "P2002") continue;
+        throw e;
+      }
+    }
+
+    // Optional: also add to system KB "All CBAs" (id stays cbas_shared)
+    if (isCba && shareToCbas) {
+      const allCbasKbId = "cbas_shared";
+
+      const allCbas = await prisma.knowledgeBase.findUnique({ where: { id: allCbasKbId } });
+      if (!allCbas) {
+        return NextResponse.json(
+          { error: "System KB 'cbas_shared' not found. Run seed." },
+          { status: 500 }
+        );
+      }
+
+      // Ensure vector store exists for All CBAs
+      let allCbasVsId = allCbas.vectorStoreId;
+      if (!allCbasVsId || !allCbasVsId.startsWith("vs_")) {
+        const newVs = await openai.vectorStores.create({ name: `System KB: ${allCbas.name}` });
+        allCbasVsId = newVs.id;
+        await prisma.knowledgeBase.update({
+          where: { id: allCbasKbId },
+          data: { vectorStoreId: allCbasVsId },
+        });
+      }
+
+      // Dedup against BOTH DB filenames and vector store filenames
+      const existingAllCbasDocs = await prisma.document.findMany({
+        where: { kbId: allCbasKbId },
+        select: { filename: true },
       });
+      const dbNames = new Set(existingAllCbasDocs.map((x) => x.filename.trim()));
+
+      let vsNames = new Set<string>();
+      try {
+        vsNames = await getVectorStoreAttachedFilenames(allCbasVsId);
+      } catch {
+        // best effort; DB-only dedupe still prevents most duplicates
+      }
+
+      const alreadyThere = new Set<string>([...dbNames, ...vsNames]);
+
+      for (const d of createdDocs) {
+        // If the filename already exists in All CBAs, skip attaching/creating
+        if (alreadyThere.has(d.filename.trim())) continue;
+
+        // Attach the SAME OpenAI file to the All CBAs vector store
+        await openai.vectorStores.files.create(allCbasVsId, { file_id: d.openaiFileId });
+
+        // Write the system Document row
+        try {
+          await prisma.document.create({
+            data: {
+              ownerUserId: DEFAULT_OWNER_USER_ID, // you seeded "system" user
+              kbId: allCbasKbId,
+              openaiFileId: d.openaiFileId,
+              filename: d.filename,
+              isCba: true,
+              chapter,
+              localUnion,
+              cbaType,
+              state,
+              sharedToCbas: true,
+            },
+          });
+        } catch (e: any) {
+          if (e?.code !== "P2002") throw e;
+        }
+      }
     }
 
     return NextResponse.json({ id, name, vectorStoreId: vs.id });
