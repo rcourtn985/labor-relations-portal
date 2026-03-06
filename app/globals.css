@@ -1,47 +1,62 @@
 @import "tailwindcss";
 
-/* 
-  Labor Relations Central Intelligence (Overclocked Solutions)
-  Theme system using CSS variables.
+/*
+  Labor Relations Central Intelligence
+  Overclocked Solutions vaporwave theme
 
-  Default: Vaporwave (consistent, readable, branded)
+  Goal:
+  - keep the neon / vaporwave identity
+  - improve readability and contrast
+  - preserve existing variable names used throughout the app
 */
 
 :root {
-  /* Core surfaces */
-  --background: #0b0720;        /* deep space */
-  --foreground: #f2f0ff;        /* near-white lavender */
-  --muted: #c9c4ff;             /* secondary text */
-  --panel: rgba(255, 255, 255, 0.06);
-  --panel-strong: rgba(255, 255, 255, 0.10);
-  --border: rgba(255, 255, 255, 0.16);
+  /* Core text */
+  --background: #0a0a16;
+  --foreground: #f7f4ff;
+  --muted: #b8b3d9;
+  --muted-strong: #d7d2f3;
 
-  /* Vaporwave accents */
-  --accent: #ff4fd8;            /* neon pink */
-  --accent-2: #33d6ff;          /* neon cyan */
-  --accent-3: #a855f7;          /* neon purple */
+  /* Surface system */
+  --panel: rgba(20, 18, 42, 0.82);
+  --panel-strong: rgba(31, 27, 61, 0.94);
+  --panel-soft: rgba(255, 255, 255, 0.04);
+  --border: rgba(149, 132, 255, 0.28);
+  --border-strong: rgba(94, 224, 255, 0.36);
+
+  /* Brand accents */
+  --accent: #ff59d6;
+  --accent-2: #56e0ff;
+  --accent-3: #b277ff;
+
+  /* Semantic helpers */
+  --success: #59f0b5;
+  --warning: #ffd36b;
+  --danger: #ff7aa8;
 
   /* Inputs */
-  --input-bg: rgba(0, 0, 0, 0.35);
-  --input-border: rgba(255, 255, 255, 0.20);
-  --input-focus: rgba(51, 214, 255, 0.7);
+  --input-bg: rgba(12, 10, 28, 0.92);
+  --input-border: rgba(149, 132, 255, 0.30);
+  --input-focus: rgba(86, 224, 255, 0.75);
+  --input-placeholder: rgba(247, 244, 255, 0.52);
 
   /* Buttons */
-  --button-bg: rgba(255, 255, 255, 0.10);
-  --button-bg-hover: rgba(255, 255, 255, 0.16);
-  --button-border: rgba(255, 255, 255, 0.22);
+  --button-bg: linear-gradient(135deg, rgba(255, 89, 214, 0.18), rgba(86, 224, 255, 0.14));
+  --button-bg-hover: linear-gradient(135deg, rgba(255, 89, 214, 0.26), rgba(86, 224, 255, 0.22));
+  --button-border: rgba(255, 255, 255, 0.16);
 
-  /* Table */
-  --table-header: rgba(255, 255, 255, 0.10);
-  --table-row: rgba(255, 255, 255, 0.04);
-  --table-row-hover: rgba(255, 255, 255, 0.08);
+  /* Tables */
+  --table-header: rgba(44, 38, 82, 0.96);
+  --table-row: rgba(255, 255, 255, 0.025);
+  --table-row-hover: rgba(86, 224, 255, 0.08);
 
-  /* Nice glow */
-  --glow: 0 0 18px rgba(255, 79, 216, 0.25), 0 0 28px rgba(51, 214, 255, 0.18);
+  /* Effects */
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --glow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 0 22px rgba(255, 89, 214, 0.12),
+    0 0 34px rgba(86, 224, 255, 0.10);
 }
-
-/* If you later want light mode, we can add a [data-theme="light"] block. */
-/* For now, remove the OS-based auto dark swap to avoid readability fights. */
 
 @theme inline {
   --color-background: var(--background);
@@ -50,84 +65,195 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html, body {
+html,
+body {
   height: 100%;
 }
 
+html {
+  color-scheme: dark;
+}
+
 body {
-  background: radial-gradient(1200px 800px at 20% 10%, rgba(255, 79, 216, 0.12), transparent 60%),
-              radial-gradient(900px 700px at 80% 20%, rgba(51, 214, 255, 0.12), transparent 55%),
-              radial-gradient(900px 900px at 55% 85%, rgba(168, 85, 247, 0.10), transparent 60%),
-              var(--background);
+  margin: 0;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(1200px 700px at 12% 8%, rgba(255, 89, 214, 0.16), transparent 60%),
+    radial-gradient(1000px 700px at 85% 12%, rgba(86, 224, 255, 0.14), transparent 58%),
+    radial-gradient(900px 700px at 50% 100%, rgba(178, 119, 255, 0.12), transparent 62%),
+    linear-gradient(180deg, #0b0a1b 0%, #090913 100%);
+  background-attachment: fixed;
+}
+
+/* Base typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--foreground);
+  letter-spacing: 0.01em;
+}
+
+p,
+label,
+span,
+small,
+li {
+  color: inherit;
 }
 
 /* Links */
 a {
   color: var(--accent-2);
-}
-a:hover {
-  color: var(--accent);
+  text-decoration: none;
+  transition:
+    color 0.15s ease,
+    text-shadow 0.15s ease;
 }
 
-/* Inputs / selects / textareas */
-input, select, textarea {
+a:hover {
+  color: var(--accent);
+  text-shadow: 0 0 14px rgba(255, 89, 214, 0.28);
+}
+
+/* Form controls */
+input,
+select,
+textarea {
   background: var(--input-bg);
   color: var(--foreground);
   border: 1px solid var(--input-border);
   border-radius: 10px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 
-input::placeholder, textarea::placeholder {
-  color: rgba(242, 240, 255, 0.65);
+input::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder);
   opacity: 1;
 }
 
-input:focus, select:focus, textarea:focus {
-  outline: none;
-  border-color: var(--input-focus);
-  box-shadow: 0 0 0 3px rgba(51, 214, 255, 0.20);
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--border-strong);
 }
 
-/* Buttons (works for your <button style=...> too if you remove inline bg later) */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--input-focus);
+  box-shadow:
+    0 0 0 3px rgba(86, 224, 255, 0.18),
+    0 0 18px rgba(86, 224, 255, 0.12);
+}
+
+/* Buttons */
 button {
   color: var(--foreground);
+  border-color: var(--button-border);
+  transition:
+    transform 0.06s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(86, 224, 255, 0.10);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Tables */
 table {
   color: var(--foreground);
 }
+
 thead th {
   background: var(--table-header);
 }
+
 tbody tr {
   background: var(--table-row);
+  transition: background 0.12s ease;
 }
+
 tbody tr:hover {
   background: var(--table-row-hover);
 }
 
-/* Utility: "card" look if you later convert inline styles to className */
+/* Selection */
+::selection {
+  background: rgba(255, 89, 214, 0.30);
+  color: #ffffff;
+}
+
+/* Reusable utility card */
 .vw-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
-  box-shadow: var(--glow);
-  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-soft), var(--glow);
+  backdrop-filter: blur(10px);
 }
 
-/* Scrollbar (optional, but nice) */
+/* Optional utility classes for future cleanup */
+.vw-card-strong {
+  background: var(--panel-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft), var(--glow);
+  backdrop-filter: blur(12px);
+}
+
+.vw-muted {
+  color: var(--muted);
+}
+
+.vw-accent {
+  color: var(--accent);
+}
+
+.vw-accent-2 {
+  color: var(--accent-2);
+}
+
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) rgba(255, 255, 255, 0.04);
+}
+
 *::-webkit-scrollbar {
   width: 12px;
   height: 12px;
 }
+
+*::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 *::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.20);
   border-radius: 10px;
-  border: 2px solid rgba(0, 0, 0, 0.25);
+  border: 2px solid rgba(10, 10, 22, 0.85);
 }
+
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.30);
 }
