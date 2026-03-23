@@ -27,7 +27,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <div className="os-app-shell">
+          <main className="os-app-main">{children}</main>
+          <footer className="os-footer">© Overclocked Solutions</footer>
+        </div>
       </body>
     </html>
   );

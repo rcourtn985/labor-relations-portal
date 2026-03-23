@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 type Msg = {
   role: "user" | "assistant";
@@ -20,44 +20,19 @@ type ChatScopeFilters = {
   includeNationalAgreements: boolean;
 };
 
-const chapterOptions: FilterOption[] = [
-  { value: "slcc", label: "Southeastern Line Constructors" },
-  { value: "nfc", label: "North Florida Chapter" },
-  { value: "gcc", label: "Gulf Coast Chapter" },
-  { value: "carolinas", label: "Carolinas Chapter" },
-];
+type ChatRequestBody = {
+  messages: Msg[];
+  filters: ChatScopeFilters;
+};
 
-const localUnionOptions: FilterOption[] = [
-  { value: "66", label: "Local 66" },
-  { value: "84", label: "Local 84" },
-  { value: "104", label: "Local 104" },
-  { value: "222", label: "Local 222" },
-];
+type FilterOptionsResponse = {
+  chapterOptions: FilterOption[];
+  localUnionOptions: FilterOption[];
+  agreementTypeOptions: FilterOption[];
+  stateOptions: FilterOption[];
+};
 
-const agreementTypeOptions: FilterOption[] = [
-  { value: "Inside", label: "Inside" },
-  { value: "Outside Line", label: "Outside Line" },
-  { value: "Residential", label: "Residential" },
-  { value: "Teledata / VDV", label: "Teledata / VDV" },
-  { value: "Utility", label: "Utility" },
-  { value: "Tree Trimming", label: "Tree Trimming" },
-  { value: "Maintenance", label: "Maintenance" },
-  { value: "Other", label: "Other" },
-];
-
-const stateOptions: FilterOption[] = [
-  { value: "AL", label: "AL" },
-  { value: "AR", label: "AR" },
-  { value: "FL", label: "FL" },
-  { value: "GA", label: "GA" },
-  { value: "LA", label: "LA" },
-  { value: "MS", label: "MS" },
-  { value: "NC", label: "NC" },
-  { value: "SC", label: "SC" },
-  { value: "TN", label: "TN" },
-  { value: "TX", label: "TX" },
-  { value: "VA", label: "VA" },
-];
+type UserRole = "USER" | "CHAPTER_ADMIN" | "SUPER_ADMIN";
 
 function getLabels(values: string[], options: FilterOption[]) {
   return values
@@ -81,6 +56,11 @@ function summarizeMultiSelect(
   return `${labels.length} ${compactCountLabel ?? "selected"}`;
 }
 
+function arraysEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
 type MultiSelectDropdownProps = {
   label: string;
   options: FilterOption[];
@@ -88,6 +68,7 @@ type MultiSelectDropdownProps = {
   onChange: (nextValues: string[]) => void;
   allLabel: string;
   compactCountLabel: string;
+  disabled?: boolean;
 };
 
 function MultiSelectDropdown({
@@ -97,6 +78,7 @@ function MultiSelectDropdown({
   onChange,
   allLabel,
   compactCountLabel,
+  disabled = false,
 }: MultiSelectDropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -112,6 +94,12 @@ function MultiSelectDropdown({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (disabled && open) {
+      setOpen(false);
+    }
+  }, [disabled, open]);
 
   const buttonLabel = summarizeMultiSelect(
     selectedValues,
@@ -134,9 +122,11 @@ function MultiSelectDropdown({
       <label
         style={{
           display: "block",
-          marginBottom: 6,
+          marginBottom: 8,
           fontWeight: 700,
-          fontSize: 14,
+          fontSize: 13,
+          color: "var(--muted-strong)",
+          letterSpacing: "0.01em",
         }}
       >
         {label}
@@ -144,20 +134,26 @@ function MultiSelectDropdown({
 
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen((current) => !current);
+        }}
         style={{
           width: "100%",
-          padding: "10px 12px",
-          borderRadius: 10,
+          padding: "11px 12px",
+          borderRadius: 8,
           border: "1px solid var(--input-border)",
           background: "var(--input-bg)",
           color: "var(--foreground)",
           textAlign: "left",
-          cursor: "pointer",
+          cursor: disabled ? "not-allowed" : "pointer",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
+          opacity: disabled ? 0.65 : 1,
+          fontSize: 14,
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.6)",
         }}
       >
         <span
@@ -172,7 +168,7 @@ function MultiSelectDropdown({
         <span style={{ color: "var(--muted)" }}>▼</span>
       </button>
 
-      {open && (
+      {open && !disabled && (
         <div
           style={{
             position: "absolute",
@@ -181,9 +177,9 @@ function MultiSelectDropdown({
             left: 0,
             right: 0,
             border: "1px solid var(--border)",
-            borderRadius: 12,
-            background: "var(--panel-strong)",
-            boxShadow: "var(--shadow-soft), var(--glow)",
+            borderRadius: 10,
+            background: "var(--panel)",
+            boxShadow: "var(--shadow-strong)",
             padding: 10,
             maxHeight: 260,
             overflowY: "auto",
@@ -195,47 +191,62 @@ function MultiSelectDropdown({
               onClick={() => onChange([])}
               style={{
                 width: "100%",
-                padding: "8px 10px",
+                padding: "9px 10px",
                 borderRadius: 8,
                 border: "1px solid var(--border)",
-                background: "rgba(255,255,255,0.04)",
+                background: "var(--panel-strong)",
                 color: "var(--foreground)",
                 cursor: "pointer",
                 textAlign: "left",
                 fontWeight: 600,
               }}
             >
-              Clear selection (All)
+              Clear selection
             </button>
           </div>
 
-          <div style={{ display: "grid", gap: 8 }}>
-            {options.map((option) => {
-              const checked = selectedValues.includes(option.value);
+          {options.length === 0 ? (
+            <div
+              style={{
+                padding: "8px 10px",
+                color: "var(--muted)",
+                fontSize: 14,
+              }}
+            >
+              No options available.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {options.map((option) => {
+                const checked = selectedValues.includes(option.value);
 
-              return (
-                <label
-                  key={option.value}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    background: checked ? "rgba(86, 224, 255, 0.08)" : "transparent",
-                    cursor: "pointer",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleValue(option.value)}
-                  />
-                  <span>{option.label}</span>
-                </label>
-              );
-            })}
-          </div>
+                return (
+                  <label
+                    key={option.value}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "9px 10px",
+                      borderRadius: 8,
+                      background: checked ? "rgba(31, 58, 95, 0.08)" : "transparent",
+                      cursor: "pointer",
+                      border: checked
+                        ? "1px solid rgba(31, 58, 95, 0.18)"
+                        : "1px solid transparent",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleValue(option.value)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -248,12 +259,141 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
 
   const [filters, setFilters] = useState<ChatScopeFilters>({
-    chapters: ["slcc"],
+    chapters: [],
     localUnions: [],
     agreementTypes: [],
     states: [],
     includeNationalAgreements: false,
   });
+
+  const [filterOptions, setFilterOptions] = useState<FilterOptionsResponse>({
+    chapterOptions: [],
+    localUnionOptions: [],
+    agreementTypeOptions: [],
+    stateOptions: [],
+  });
+
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
+  const [filterOptionsError, setFilterOptionsError] = useState<string | null>(null);
+
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("CHAPTER_ADMIN");
+
+  const canManageAgreements =
+    currentUserRole === "CHAPTER_ADMIN" || currentUserRole === "SUPER_ADMIN";
+
+  const chapterQueryKey = [...filters.chapters].sort().join("|");
+
+  const loadFilterOptions = useCallback(async (chapters: string[]) => {
+    setFilterOptionsLoading(true);
+    setFilterOptionsError(null);
+
+    try {
+      const params = new URLSearchParams();
+
+      for (const chapter of [...chapters].sort()) {
+        params.append("chapters", chapter);
+      }
+
+      const queryString = params.toString();
+      const url = queryString
+        ? `/api/chat/filter-options?${queryString}`
+        : "/api/chat/filter-options";
+
+      const res = await fetch(url, { cache: "no-store" });
+
+      if (!res.ok) {
+        throw new Error(`Failed to load filter options (${res.status})`);
+      }
+
+      const data: FilterOptionsResponse = await res.json();
+
+      setFilterOptions({
+        chapterOptions: data.chapterOptions ?? [],
+        localUnionOptions: data.localUnionOptions ?? [],
+        agreementTypeOptions: data.agreementTypeOptions ?? [],
+        stateOptions: data.stateOptions ?? [],
+      });
+
+      setFilters((current) => {
+        const validChapterValues = new Set(
+          (data.chapterOptions ?? []).map((option) => option.value)
+        );
+        const validLocalUnionValues = new Set(
+          (data.localUnionOptions ?? []).map((option) => option.value)
+        );
+        const validAgreementTypeValues = new Set(
+          (data.agreementTypeOptions ?? []).map((option) => option.value)
+        );
+        const validStateValues = new Set(
+          (data.stateOptions ?? []).map((option) => option.value)
+        );
+
+        const nextChapters = current.chapters.filter((value) =>
+          validChapterValues.has(value)
+        );
+        const nextLocalUnions = current.localUnions.filter((value) =>
+          validLocalUnionValues.has(value)
+        );
+        const nextAgreementTypes = current.agreementTypes.filter((value) =>
+          validAgreementTypeValues.has(value)
+        );
+        const nextStates = current.states.filter((value) =>
+          validStateValues.has(value)
+        );
+
+        const unchanged =
+          arraysEqual(nextChapters, current.chapters) &&
+          arraysEqual(nextLocalUnions, current.localUnions) &&
+          arraysEqual(nextAgreementTypes, current.agreementTypes) &&
+          arraysEqual(nextStates, current.states);
+
+        if (unchanged) {
+          return current;
+        }
+
+        return {
+          ...current,
+          chapters: nextChapters,
+          localUnions: nextLocalUnions,
+          agreementTypes: nextAgreementTypes,
+          states: nextStates,
+        };
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to load agreement filters.";
+
+      setFilterOptionsError(message);
+    } finally {
+      setFilterOptionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFilterOptions(filters.chapters);
+  }, [chapterQueryKey, loadFilterOptions, filters.chapters]);
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      loadFilterOptions(filters.chapters);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        loadFilterOptions(filters.chapters);
+      }
+    }
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadFilterOptions, filters.chapters]);
 
   async function send() {
     if (!input.trim() || loading) return;
@@ -265,27 +405,26 @@ export default function Home() {
     setLoading(true);
 
     try {
+      const requestBody: ChatRequestBody = {
+        messages: nextMessages,
+        filters,
+      };
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          messages: nextMessages,
-          kbId: "__all__",
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await res.json();
-
-      const scopeNote =
-        "Current page filters are visual only for now. Backend agreement scoping is not wired yet.";
 
       setMessages([
         ...nextMessages,
         {
           role: "assistant",
-          content: `${data.text ?? data.error ?? "(no response)"}\n\n[${scopeNote}]`,
+          content: data.text ?? data.error ?? "(no response)",
         },
       ]);
     } catch {
@@ -303,105 +442,202 @@ export default function Home() {
 
   const activeChapterSummary = summarizeMultiSelect(
     filters.chapters,
-    chapterOptions,
+    filterOptions.chapterOptions,
     "All",
     "chapters selected"
   );
 
   const activeLocalUnionSummary = summarizeMultiSelect(
     filters.localUnions,
-    localUnionOptions,
+    filterOptions.localUnionOptions,
     "All",
     "locals selected"
   );
 
   const activeAgreementTypeSummary = summarizeMultiSelect(
     filters.agreementTypes,
-    agreementTypeOptions,
+    filterOptions.agreementTypeOptions,
     "All",
     "types selected"
   );
 
   const activeStateSummary = summarizeMultiSelect(
     filters.states,
-    stateOptions,
+    filterOptions.stateOptions,
     "All",
     "states selected"
   );
 
   return (
-    <div style={{ maxWidth: 1120, margin: "32px auto", padding: 16 }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 20px 24px" }}>
       <div
         style={{
+          marginBottom: 18,
           display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 16,
-          flexWrap: "wrap",
+          justifyContent: "flex-end",
         }}
       >
-        <div>
-          <h1 style={{ margin: 0 }}>Labor Relations Central Intelligence</h1>
-          <div
-            style={{
-              marginTop: 8,
-              color: "var(--muted)",
-              fontSize: 15,
-              lineHeight: 1.5,
-            }}
-          >
-            Search and chat across your labor agreements.
-          </div>
-        </div>
-
         <div
           style={{
             display: "flex",
-            gap: 10,
             alignItems: "center",
-            flexWrap: "wrap",
+            gap: 10,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid var(--border)",
+            background: "var(--panel)",
+            boxShadow: "var(--shadow-soft)",
           }}
         >
           <label
+            htmlFor="role-simulator"
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              background: "var(--panel)",
+              fontSize: 12,
+              fontWeight: 700,
+              color: "var(--muted-strong)",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              whiteSpace: "nowrap",
             }}
           >
-            <input
-              type="checkbox"
-              checked={filters.includeNationalAgreements}
-              onChange={(e) =>
-                setFilters((current) => ({
-                  ...current,
-                  includeNationalAgreements: e.target.checked,
-                }))
-              }
-            />
-            <span>National Agreements</span>
+            Role Simulator
           </label>
 
-          <a
-            href="/kb"
+          <select
+            id="role-simulator"
+            value={currentUserRole}
+            onChange={(e) => setCurrentUserRole(e.target.value as UserRole)}
             style={{
-              display: "inline-block",
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid var(--border-strong)",
-              background:
-                "linear-gradient(135deg, rgba(255, 89, 214, 0.20), rgba(86, 224, 255, 0.16))",
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: "1px solid var(--input-border)",
+              background: "var(--input-bg)",
               color: "var(--foreground)",
-              textDecoration: "none",
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
-            Manage My Agreements
-          </a>
+            <option value="USER">USER</option>
+            <option value="CHAPTER_ADMIN">CHAPTER_ADMIN</option>
+            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+          </select>
+        </div>
+      </div>
+
+      <div
+        style={{
+          borderRadius: 14,
+          border: "1px solid rgba(31, 58, 95, 0.12)",
+          background:
+            "linear-gradient(135deg, rgba(31, 58, 95, 0.98) 0%, rgba(38, 72, 111, 0.98) 100%)",
+          color: "#fff",
+          padding: "24px 24px 22px",
+          boxShadow: "var(--shadow-strong)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 18,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ maxWidth: 760 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                opacity: 0.78,
+                marginBottom: 10,
+              }}
+            >
+              Labor Relations Platform
+            </div>
+
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 34,
+                lineHeight: 1.1,
+                letterSpacing: "-0.03em",
+                color: "#ffffff",
+              }}
+            >
+              Labor Relations Central Intelligence
+            </h1>
+
+            <div
+              style={{
+                marginTop: 12,
+                color: "rgba(255,255,255,0.84)",
+                fontSize: 15,
+                lineHeight: 1.6,
+                maxWidth: 760,
+              }}
+            >
+              Search and chat across collective bargaining agreements using structured
+              agreement filters and shared contract intelligence.
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.18)",
+                background: "rgba(255,255,255,0.08)",
+                color: "#fff",
+                fontWeight: 600,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={filters.includeNationalAgreements}
+                onChange={(e) =>
+                  setFilters((current) => ({
+                    ...current,
+                    includeNationalAgreements: e.target.checked,
+                  }))
+                }
+              />
+              <span>National Agreements</span>
+            </label>
+
+            {canManageAgreements && (
+              <a
+                href="/kb"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "11px 15px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "#ffffff",
+                  color: "var(--accent)",
+                  textDecoration: "none",
+                  fontWeight: 700,
+                  boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+                }}
+              >
+                Manage Agreements
+              </a>
+            )}
+          </div>
         </div>
       </div>
 
@@ -409,30 +645,58 @@ export default function Home() {
         style={{
           marginTop: 18,
           border: "1px solid var(--border)",
-          borderRadius: 14,
+          borderRadius: 12,
           background: "var(--panel)",
-          boxShadow: "var(--shadow-soft), var(--glow)",
-          backdropFilter: "blur(10px)",
-          padding: 16,
-          position: "relative",
-          zIndex: 30,
+          boxShadow: "var(--shadow-soft)",
+          overflow: "hidden",
         }}
       >
         <div
           style={{
-            fontSize: 12,
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "var(--muted-strong)",
-            marginBottom: 14,
+            padding: "14px 16px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--panel-strong)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
           }}
         >
-          Agreement Scope
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--muted-strong)",
+                marginBottom: 4,
+              }}
+            >
+              Agreement Scope
+            </div>
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>
+              Narrow the agreements included in search and chat results.
+            </div>
+          </div>
+
+          <div
+            style={{
+              color: "var(--muted-strong)",
+              fontSize: 12,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            Role: {currentUserRole}
+          </div>
         </div>
 
         <div
           style={{
+            padding: 16,
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
             gap: 14,
@@ -440,21 +704,24 @@ export default function Home() {
         >
           <MultiSelectDropdown
             label="Chapter"
-            options={chapterOptions}
+            options={filterOptions.chapterOptions}
             selectedValues={filters.chapters}
             onChange={(nextValues) =>
               setFilters((current) => ({
                 ...current,
                 chapters: nextValues,
+                localUnions: [],
+                states: [],
               }))
             }
             allLabel="All Chapters"
             compactCountLabel="chapters selected"
+            disabled={filterOptionsLoading}
           />
 
           <MultiSelectDropdown
             label="Local Union"
-            options={localUnionOptions}
+            options={filterOptions.localUnionOptions}
             selectedValues={filters.localUnions}
             onChange={(nextValues) =>
               setFilters((current) => ({
@@ -464,11 +731,12 @@ export default function Home() {
             }
             allLabel="All Local Unions"
             compactCountLabel="locals selected"
+            disabled={filterOptionsLoading}
           />
 
           <MultiSelectDropdown
             label="Agreement Type"
-            options={agreementTypeOptions}
+            options={filterOptions.agreementTypeOptions}
             selectedValues={filters.agreementTypes}
             onChange={(nextValues) =>
               setFilters((current) => ({
@@ -478,11 +746,12 @@ export default function Home() {
             }
             allLabel="All Agreement Types"
             compactCountLabel="types selected"
+            disabled={filterOptionsLoading}
           />
 
           <MultiSelectDropdown
             label="State(s)"
-            options={stateOptions}
+            options={filterOptions.stateOptions}
             selectedValues={filters.states}
             onChange={(nextValues) =>
               setFilters((current) => ({
@@ -492,103 +761,273 @@ export default function Home() {
             }
             allLabel="All States"
             compactCountLabel="states selected"
+            disabled={filterOptionsLoading}
           />
         </div>
-      </div>
 
-      <div
-        style={{
-          marginTop: 12,
-          padding: "12px 14px",
-          borderRadius: 12,
-          border: "1px solid var(--border)",
-          background: "rgba(255,255,255,0.03)",
-          color: "var(--muted-strong)",
-          fontSize: 13,
-          lineHeight: 1.6,
-          position: "relative",
-          zIndex: 20,
-        }}
-      >
-        <b>Searching:</b> My Agreements
-        {filters.includeNationalAgreements ? " + National Agreements" : ""}
-        {" | "}
-        <b>Chapters:</b> {activeChapterSummary}
-        {" | "}
-        <b>Local Union:</b> {activeLocalUnionSummary}
-        {" | "}
-        <b>Agreement Type:</b> {activeAgreementTypeSummary}
-        {" | "}
-        <b>States:</b> {activeStateSummary}
-      </div>
-
-      <div
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          padding: 16,
-          minHeight: 460,
-          marginTop: 16,
-          whiteSpace: "pre-wrap",
-          background: "var(--panel)",
-          boxShadow: "var(--shadow-soft), var(--glow)",
-          backdropFilter: "blur(10px)",
-          position: "relative",
-          zIndex: 1,
-        }}
-      >
-        <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 10 }}>
-          Agreement Chat
-        </div>
-
-        {messages.length === 0 && (
-          <div style={{ color: "var(--muted)", lineHeight: 1.7 }}>
-            Ask a question about your agreements. This version is focused on helping
-            you visualize the future chat workspace. The filter bar above is live in
-            the UI, but not yet connected to backend agreement filtering.
+        {filterOptionsError && (
+          <div
+            style={{
+              margin: "0 16px 16px",
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: "1px solid rgba(169, 68, 68, 0.22)",
+              background: "rgba(169, 68, 68, 0.06)",
+              color: "var(--foreground)",
+              fontSize: 13,
+            }}
+          >
+            Could not load filter options: {filterOptionsError}
           </div>
         )}
-
-        {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 14 }}>
-            <b>{m.role === "user" ? "You" : "Assistant"}:</b> {m.content}
-          </div>
-        ))}
-
-        {loading && <div>Assistant is thinking…</div>}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="Ask a question about your agreements..."
+      <div
+        style={{
+          marginTop: 14,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          alignItems: "center",
+          padding: "12px 14px",
+          borderRadius: 10,
+          border: "1px solid var(--border)",
+          background: "var(--panel)",
+          boxShadow: "var(--shadow-soft)",
+        }}
+      >
+        <span
           style={{
-            flex: 1,
-            padding: 12,
-            borderRadius: 10,
-            border: "1px solid var(--input-border)",
-            background: "var(--input-bg)",
-            color: "var(--foreground)",
-          }}
-        />
-
-        <button
-          onClick={send}
-          style={{
-            padding: "10px 14px",
-            borderRadius: 10,
-            border: "1px solid var(--border-strong)",
-            background:
-              "linear-gradient(135deg, rgba(255, 89, 214, 0.20), rgba(86, 224, 255, 0.16))",
-            color: "var(--foreground)",
-            cursor: "pointer",
+            fontSize: 12,
             fontWeight: 700,
+            color: "var(--muted-strong)",
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
           }}
         >
-          Send
-        </button>
+          Active Scope
+        </span>
+
+        <span
+          style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            background: "rgba(31, 58, 95, 0.08)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
+          Chapters: {activeChapterSummary}
+        </span>
+
+        <span
+          style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            background: "rgba(31, 58, 95, 0.08)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
+          Local Union: {activeLocalUnionSummary}
+        </span>
+
+        <span
+          style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            background: "rgba(31, 58, 95, 0.08)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
+          Agreement Type: {activeAgreementTypeSummary}
+        </span>
+
+        <span
+          style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            background: "rgba(31, 58, 95, 0.08)",
+            color: "var(--accent)",
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
+          States: {activeStateSummary}
+        </span>
+
+        {filters.includeNationalAgreements && (
+          <span
+            style={{
+              padding: "5px 9px",
+              borderRadius: 999,
+              background: "rgba(47, 111, 126, 0.10)",
+              color: "var(--accent-2)",
+              fontWeight: 700,
+              fontSize: 13,
+            }}
+          >
+            National Included
+          </span>
+        )}
+      </div>
+
+      <div
+        style={{
+          marginTop: 18,
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          background: "var(--panel)",
+          boxShadow: "var(--shadow-strong)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: "14px 16px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--panel-strong)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--muted-strong)",
+                marginBottom: 4,
+              }}
+            >
+              Agreement Chat
+            </div>
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>
+              Ask contract-specific questions and review scoped answers.
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: 16,
+            minHeight: 420,
+            whiteSpace: "pre-wrap",
+            background: "#fff",
+          }}
+        >
+          {messages.length === 0 && (
+            <div
+              style={{
+                color: "var(--muted)",
+                lineHeight: 1.7,
+                maxWidth: 760,
+              }}
+            >
+              Ask a question about your agreements. Filters above determine the
+              agreement set used for retrieval and response generation.
+            </div>
+          )}
+
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              style={{
+                marginBottom: 14,
+                padding: "12px 14px",
+                borderRadius: 10,
+                border:
+                  m.role === "user"
+                    ? "1px solid rgba(31, 58, 95, 0.14)"
+                    : "1px solid var(--border)",
+                background:
+                  m.role === "user" ? "rgba(31, 58, 95, 0.04)" : "var(--panel-strong)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: m.role === "user" ? "var(--accent)" : "var(--muted-strong)",
+                  marginBottom: 6,
+                }}
+              >
+                {m.role === "user" ? "You" : "Assistant"}
+              </div>
+              <div style={{ color: "var(--foreground)", lineHeight: 1.65 }}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--panel-strong)",
+                color: "var(--muted-strong)",
+              }}
+            >
+              Assistant is thinking…
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            padding: 16,
+            background: "var(--panel-strong)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder="Ask a question about your agreements..."
+              style={{
+                flex: 1,
+                padding: 13,
+                borderRadius: 8,
+                border: "1px solid var(--input-border)",
+                background: "#fff",
+                color: "var(--foreground)",
+                fontSize: 14,
+              }}
+            />
+
+            <button
+              onClick={send}
+              style={{
+                minWidth: 108,
+                padding: "0 16px",
+                borderRadius: 8,
+                border: "1px solid #17314f",
+                background: "var(--brand-gradient)",
+                color: "#fff",
+                cursor: "pointer",
+                fontWeight: 700,
+                boxShadow: "var(--shadow-soft)",
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

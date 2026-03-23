@@ -2,60 +2,65 @@
 
 /*
   Labor Relations Central Intelligence
-  Overclocked Solutions vaporwave theme
+  Overclocked Solutions
 
-  Goal:
-  - keep the neon / vaporwave identity
-  - improve readability and contrast
-  - preserve existing variable names used throughout the app
+  Theme direction:
+  - Institutional Modern
+  - enterprise admin console
+  - restrained, sharp, credible
+  - minimal decorative effects
+  - preserves existing variable names used throughout the app
 */
 
 :root {
   /* Core text */
-  --background: #0a0a16;
-  --foreground: #f7f4ff;
-  --muted: #b8b3d9;
-  --muted-strong: #d7d2f3;
+  --background: #f3f6f9;
+  --foreground: #101828;
+  --muted: #5b667a;
+  --muted-strong: #475467;
 
   /* Surface system */
-  --panel: rgba(20, 18, 42, 0.82);
-  --panel-strong: rgba(31, 27, 61, 0.94);
-  --panel-soft: rgba(255, 255, 255, 0.04);
-  --border: rgba(149, 132, 255, 0.28);
-  --border-strong: rgba(94, 224, 255, 0.36);
+  --panel: #ffffff;
+  --panel-strong: #f7f9fc;
+  --panel-soft: #eef3f7;
+  --border: #d6dee8;
+  --border-strong: #c3cfdb;
 
   /* Brand accents */
-  --accent: #ff59d6;
-  --accent-2: #56e0ff;
-  --accent-3: #b277ff;
+  --accent: #1f3a5f;
+  --accent-2: #2f6f7e;
+  --accent-3: #2b6e52;
 
   /* Semantic helpers */
-  --success: #59f0b5;
-  --warning: #ffd36b;
-  --danger: #ff7aa8;
+  --success: #2b6e52;
+  --warning: #a56a18;
+  --danger: #a94444;
 
   /* Inputs */
-  --input-bg: rgba(12, 10, 28, 0.92);
-  --input-border: rgba(149, 132, 255, 0.30);
-  --input-focus: rgba(86, 224, 255, 0.75);
-  --input-placeholder: rgba(247, 244, 255, 0.52);
+  --input-bg: #ffffff;
+  --input-border: #c8d3df;
+  --input-focus: rgba(31, 58, 95, 0.14);
+  --input-placeholder: rgba(91, 102, 122, 0.72);
 
   /* Buttons */
-  --button-bg: linear-gradient(135deg, rgba(255, 89, 214, 0.18), rgba(86, 224, 255, 0.14));
-  --button-bg-hover: linear-gradient(135deg, rgba(255, 89, 214, 0.26), rgba(86, 224, 255, 0.22));
-  --button-border: rgba(255, 255, 255, 0.16);
+  --button-bg: #ffffff;
+  --button-bg-hover: #f5f8fb;
+  --button-border: #c8d3df;
 
   /* Tables */
-  --table-header: rgba(44, 38, 82, 0.96);
-  --table-row: rgba(255, 255, 255, 0.025);
-  --table-row-hover: rgba(86, 224, 255, 0.08);
+  --table-header: #eef3f7;
+  --table-row: #ffffff;
+  --table-row-hover: #f7fafd;
 
   /* Effects */
-  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --glow:
-    0 0 0 1px rgba(255, 255, 255, 0.03),
-    0 0 22px rgba(255, 89, 214, 0.12),
-    0 0 34px rgba(86, 224, 255, 0.10);
+  --shadow-soft: 0 4px 12px rgba(16, 24, 40, 0.05);
+  --shadow-strong: 0 10px 28px rgba(16, 24, 40, 0.08);
+  --glow: none;
+
+  /* Minimal gradients kept only for compatibility */
+  --brand-gradient: linear-gradient(180deg, #1f3a5f 0%, #1b3455 100%);
+  --brand-gradient-soft: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --accent-gradient-soft: linear-gradient(180deg, #f7f9fc 0%, #eef3f7 100%);
 }
 
 @theme inline {
@@ -67,11 +72,11 @@
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -79,10 +84,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   background:
-    radial-gradient(1200px 700px at 12% 8%, rgba(255, 89, 214, 0.16), transparent 60%),
-    radial-gradient(1000px 700px at 85% 12%, rgba(86, 224, 255, 0.14), transparent 58%),
-    radial-gradient(900px 700px at 50% 100%, rgba(178, 119, 255, 0.12), transparent 62%),
-    linear-gradient(180deg, #0b0a1b 0%, #090913 100%);
+    linear-gradient(180deg, #f7f9fc 0%, #f3f6f9 100%);
   background-attachment: fixed;
 }
 
@@ -94,7 +96,18 @@ h4,
 h5,
 h6 {
   color: var(--foreground);
-  letter-spacing: 0.01em;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  margin-top: 0;
+}
+
+h1 {
+  font-weight: 700;
+}
+
+h2,
+h3 {
+  font-weight: 700;
 }
 
 p,
@@ -107,16 +120,13 @@ li {
 
 /* Links */
 a {
-  color: var(--accent-2);
+  color: var(--accent);
   text-decoration: none;
-  transition:
-    color 0.15s ease,
-    text-shadow 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 a:hover {
-  color: var(--accent);
-  text-shadow: 0 0 14px rgba(255, 89, 214, 0.28);
+  color: #17304f;
 }
 
 /* Form controls */
@@ -126,7 +136,7 @@ textarea {
   background: var(--input-bg);
   color: var(--foreground);
   border: 1px solid var(--input-border);
-  border-radius: 10px;
+  border-radius: 8px;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease,
@@ -149,10 +159,8 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--input-focus);
-  box-shadow:
-    0 0 0 3px rgba(86, 224, 255, 0.18),
-    0 0 18px rgba(86, 224, 255, 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--input-focus);
 }
 
 /* Buttons */
@@ -160,14 +168,15 @@ button {
   color: var(--foreground);
   border-color: var(--button-border);
   transition:
-    transform 0.06s ease,
+    transform 0.04s ease,
     box-shadow 0.15s ease,
     background 0.15s ease,
-    border-color 0.15s ease;
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 button:hover:not(:disabled) {
-  box-shadow: 0 0 20px rgba(86, 224, 255, 0.10);
+  box-shadow: var(--shadow-soft);
 }
 
 button:active:not(:disabled) {
@@ -186,6 +195,11 @@ table {
 
 thead th {
   background: var(--table-header);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 tbody tr {
@@ -199,26 +213,23 @@ tbody tr:hover {
 
 /* Selection */
 ::selection {
-  background: rgba(255, 89, 214, 0.30);
-  color: #ffffff;
+  background: rgba(31, 58, 95, 0.12);
+  color: #101828;
 }
 
-/* Reusable utility card */
+/* Reusable utility cards */
 .vw-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow-soft), var(--glow);
-  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
 }
 
-/* Optional utility classes for future cleanup */
 .vw-card-strong {
-  background: var(--panel-strong);
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  box-shadow: var(--shadow-soft), var(--glow);
-  backdrop-filter: blur(12px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-strong);
 }
 
 .vw-muted {
@@ -233,10 +244,31 @@ tbody tr:hover {
   color: var(--accent-2);
 }
 
+/* App shell / footer */
+.os-app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.os-app-main {
+  flex: 1;
+}
+
+.os-footer {
+  margin-top: 32px;
+  padding: 18px 24px 24px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  border-top: 1px solid rgba(214, 222, 232, 0.8);
+  background: rgba(255, 255, 255, 0.55);
+}
+
 /* Scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.24) rgba(255, 255, 255, 0.04);
+  scrollbar-color: #c3cfdb rgba(255, 255, 255, 0.65);
 }
 
 *::-webkit-scrollbar {
@@ -245,15 +277,15 @@ tbody tr:hover {
 }
 
 *::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(16, 24, 40, 0.03);
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.20);
+  background: #c3cfdb;
   border-radius: 10px;
-  border: 2px solid rgba(10, 10, 22, 0.85);
+  border: 2px solid #f3f6f9;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.30);
+  background: #afbccb;
 }
