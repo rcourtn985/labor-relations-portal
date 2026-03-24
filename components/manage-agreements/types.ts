@@ -24,6 +24,7 @@ export type KBFilesResponse = {
     localUnion?: string | null;
     agreementType?: string | null;
     states?: string | null;
+    sharedToCbas?: boolean;
     fileUrl?: string | null;
   }[];
 };
@@ -42,4 +43,5 @@ export type AgreementRow = {
   collectionName: string;
   fileId: string;
   fileUrl: string | null;
+  sharedToCbas: boolean;
 };

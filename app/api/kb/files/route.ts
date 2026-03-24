@@ -77,6 +77,7 @@ export async function GET(req: Request) {
             localUnion: null,
             agreementType: null,
             states: null,
+            sharedToCbas: true,
             fileUrl: fileId ? `/api/kb/file/${encodeURIComponent(fileId)}` : null,
             debug: {
               retrieveError,
@@ -105,6 +106,7 @@ export async function GET(req: Request) {
         localUnion: true,
         cbaType: true,
         state: true,
+        sharedToCbas: true,
       },
     });
 
@@ -122,6 +124,7 @@ export async function GET(req: Request) {
         localUnion: d.localUnion ?? null,
         agreementType: d.cbaType ?? null,
         states: d.state ?? null,
+        sharedToCbas: d.sharedToCbas ?? false,
         fileUrl: d.openaiFileId
           ? `/api/kb/file/${encodeURIComponent(d.openaiFileId)}`
           : null,

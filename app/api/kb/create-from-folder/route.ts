@@ -139,15 +139,28 @@ export async function POST(req: Request) {
     }
 
     // Write new Document rows (idempotent-safe)
-    await prisma.document.createMany({
-      data: createdDocs.map((d) => ({
-        ownerUserId: DEFAULT_OWNER_USER_ID,
-        kbId: kb.id,
-        openaiFileId: d.openaiFileId,
-        filename: d.filename,
-      })),
-      skipDuplicates: true,
-    });
+    for (const d of createdDocs) {
+      try {
+        await prisma.document.create({
+          data: {
+            ownerUserId: DEFAULT_OWNER_USER_ID,
+            kbId: kb.id,
+            openaiFileId: d.openaiFileId,
+            filename: d.filename,
+          },
+        });
+      } catch (e: unknown) {
+        if (
+          typeof e === "object" &&
+          e !== null &&
+          "code" in e &&
+          (e as { code?: string }).code === "P2002"
+        ) {
+          continue;
+        }
+        throw e;
+      }
+    }
 
     return NextResponse.json({
       id: kb.id,
@@ -156,7 +169,8 @@ export async function POST(req: Request) {
       createdNewKb,
       addedCount: createdDocs.length,
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

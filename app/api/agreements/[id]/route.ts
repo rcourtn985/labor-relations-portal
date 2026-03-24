@@ -9,6 +9,9 @@ type RouteContext = {
   }>;
 };
 
+const SHARED_CBAS_KB_ID = "cbas_shared";
+const DEFAULT_OWNER_USER_ID = "system";
+
 export async function PATCH(req: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
@@ -27,6 +30,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     const agreementType =
       typeof body.agreementType === "string" ? body.agreementType.trim() : "";
     const states = typeof body.states === "string" ? body.states.trim() : "";
+    const sharedToCbas = Boolean(body.sharedToCbas);
 
     const existing = await prisma.document.findUnique({
       where: { id },
@@ -34,6 +38,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         id: true,
         kbId: true,
         filename: true,
+        openaiFileId: true,
+        isCba: true,
       },
     });
 
@@ -49,6 +55,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         localUnion: localUnion || null,
         cbaType: agreementType || null,
         state: states || null,
+        sharedToCbas,
       },
     });
 
@@ -68,8 +75,70 @@ export async function PATCH(req: Request, context: RouteContext) {
           localUnion: localUnion || null,
           cbaType: agreementType || null,
           state: states || null,
+          sharedToCbas,
         },
       });
+    }
+
+    // Ensure shared/national mirror row exists or is removed based on the flag.
+    if (existing.isCba && existing.filename) {
+      const sharedKb = await prisma.knowledgeBase.findUnique({
+        where: { id: SHARED_CBAS_KB_ID },
+        select: { id: true },
+      });
+
+      if (!sharedKb) {
+        return NextResponse.json(
+          { error: "System KB 'cbas_shared' not found. Run seed." },
+          { status: 500 }
+        );
+      }
+
+      const existingSharedDoc = await prisma.document.findFirst({
+        where: {
+          kbId: SHARED_CBAS_KB_ID,
+          filename: existing.filename,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (sharedToCbas) {
+        if (!existingSharedDoc) {
+          await prisma.document.create({
+            data: {
+              ownerUserId: DEFAULT_OWNER_USER_ID,
+              kbId: SHARED_CBAS_KB_ID,
+              openaiFileId: existing.openaiFileId,
+              filename: existing.filename,
+              isCba: true,
+              chapter: chapter || null,
+              localUnion: localUnion || null,
+              cbaType: agreementType || null,
+              state: states || null,
+              sharedToCbas: true,
+            },
+          });
+        } else {
+          await prisma.document.update({
+            where: { id: existingSharedDoc.id },
+            data: {
+              chapter: chapter || null,
+              localUnion: localUnion || null,
+              cbaType: agreementType || null,
+              state: states || null,
+              sharedToCbas: true,
+            },
+          });
+        }
+      } else {
+        if (existingSharedDoc) {
+          await prisma.document.delete({
+            where: { id: existingSharedDoc.id },
+          });
+        }
+      }
     }
 
     // Update the visible agreement name on the current agreement's container
@@ -94,6 +163,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         localUnion: true,
         cbaType: true,
         state: true,
+        sharedToCbas: true,
         kb: {
           select: {
             id: true,
@@ -118,6 +188,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         localUnion: doc.localUnion ?? "",
         agreementType: doc.cbaType ?? "",
         states: doc.state ?? "",
+        sharedToCbas: Boolean(doc.sharedToCbas),
       })),
     });
   } catch (e: any) {

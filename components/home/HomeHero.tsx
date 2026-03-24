@@ -105,7 +105,7 @@ export default function HomeHero({
                 }))
               }
             />
-            <span>National Agreements</span>
+            <span>National Database</span>
           </label>
 
           {canManageAgreements && (

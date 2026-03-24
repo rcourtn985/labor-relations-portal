@@ -31,6 +31,16 @@ function parseStates(rawState: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+function parseLocalUnions(rawLocalUnion: string | null | undefined): string[] {
+  const value = normalizeValue(rawLocalUnion);
+  if (!value) return [];
+
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const selectedChapters = request.nextUrl.searchParams
@@ -73,7 +83,7 @@ export async function GET(request: NextRequest) {
     );
 
     const localUnionOptions = toOptionArray(
-      filteredRows.map((row) => normalizeValue(row.localUnion)).filter(Boolean)
+      filteredRows.flatMap((row) => parseLocalUnions(row.localUnion))
     );
 
     const agreementTypeOptions = toOptionArray(

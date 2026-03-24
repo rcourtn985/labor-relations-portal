@@ -2,6 +2,8 @@
 // - Per-user private KBs
 // - System KBs (Central, All CBAs)
 // - Document metadata for shared CBA uploads
+// - Original file storage metadata
+// - Extracted text storage for exact agreement search
 
 generator client {
   provider = "prisma-client-js"
@@ -49,20 +51,20 @@ model KnowledgeBase {
 }
 
 model Document {
-  id            String   @id @default(cuid())
+  id            String        @id @default(cuid())
 
   ownerUserId   String
-  ownerUser     User     @relation(fields: [ownerUserId], references: [id])
+  ownerUser     User          @relation(fields: [ownerUserId], references: [id])
 
   kbId          String
   kb            KnowledgeBase @relation(fields: [kbId], references: [id])
 
   openaiFileId  String
   filename      String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime      @default(now())
 
   // CBA metadata (optional; captured when a user marks an upload as a CBA)
-  isCba         Boolean  @default(false)
+  isCba         Boolean       @default(false)
 
   // New metadata
   chapter       String?
@@ -76,7 +78,16 @@ model Document {
   effectiveTo   DateTime?
 
   // Whether this document was also added to the system "All CBAs" KB
-  sharedToCbas  Boolean  @default(false)
+  sharedToCbas  Boolean       @default(false)
+
+  // Original file storage metadata
+  storageProvider String?
+  storageKey      String?
+  mimeType        String?
+  fileSizeBytes   Int?
+  sha256          String?
+
+  textContent   DocumentText?
 
   @@index([kbId])
   @@index([ownerUserId])
@@ -84,4 +95,16 @@ model Document {
 
   // Prevent duplicate filenames within a KB
   @@unique([kbId, filename])
+}
+
+model DocumentText {
+  id              String    @id @default(cuid())
+  documentId      String    @unique
+  document        Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  extractedText   String
+  extractionState String    @default("completed")
+  extractedAt     DateTime  @default(now())
+
+  @@index([documentId])
 }

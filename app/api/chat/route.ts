@@ -19,6 +19,8 @@ type ChatScopeFilters = {
   includeNationalAgreements?: boolean;
 };
 
+const SHARED_CBAS_KB_ID = "cbas_shared";
+
 function getLastUserQuestion(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]?.role === "user" && typeof messages[i]?.content === "string") {
@@ -39,23 +41,18 @@ function normalizeMessagesForResponsesApi(
     const role = (msg as any).role;
     const content = (msg as any).content;
 
+    if (typeof content !== "string" || !content.trim()) continue;
+
     if (
-      (role === "system" ||
-        role === "developer" ||
-        role === "user" ||
-        role === "assistant") &&
-      typeof content === "string" &&
-      content.trim()
+      role === "system" ||
+      role === "developer" ||
+      role === "user" ||
+      role === "assistant"
     ) {
       normalized.push({
         type: "message",
         role,
-        content: [
-          {
-            type: "input_text",
-            text: content,
-          },
-        ],
+        content,
       });
     }
   }
@@ -75,6 +72,91 @@ function normalizeFilters(rawFilters: unknown): Required<ChatScopeFilters> {
     states: Array.isArray(filters.states) ? filters.states : [],
     includeNationalAgreements: Boolean(filters.includeNationalAgreements),
   };
+}
+
+function normalizeString(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function splitStates(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function splitLocalUnions(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function matchesSingle(value: unknown, selected: string[]): boolean {
+  if (!selected.length) return true;
+  const normalizedValue = normalizeString(value);
+  const normalizedSelected = selected.map(normalizeString);
+  return normalizedSelected.includes(normalizedValue);
+}
+
+function matchesStates(value: unknown, selected: string[]): boolean {
+  if (!selected.length) return true;
+
+  const normalizedSelected = selected.map(normalizeString);
+  const candidateStates = splitStates(value).map(normalizeString);
+
+  if (!candidateStates.length) {
+    return false;
+  }
+
+  return candidateStates.some((state) => normalizedSelected.includes(state));
+}
+
+function matchesLocalUnions(value: unknown, selected: string[]): boolean {
+  if (!selected.length) return true;
+
+  const normalizedSelected = selected.map(normalizeString);
+  const candidateLocalUnions = splitLocalUnions(value).map(normalizeString);
+
+  if (!candidateLocalUnions.length) {
+    return false;
+  }
+
+  return candidateLocalUnions.some((localUnion) =>
+    normalizedSelected.includes(localUnion)
+  );
+}
+
+function matchesNationalDatabase(chunk: any, filters: Required<ChatScopeFilters>): boolean {
+  if (filters.includeNationalAgreements) {
+    return true;
+  }
+
+  return chunk?.kbId !== SHARED_CBAS_KB_ID;
+}
+
+function chunkMatchesFilters(chunk: any, filters: Required<ChatScopeFilters>): boolean {
+  const chapterMatches = matchesSingle(chunk?.chapter, filters.chapters);
+  const localUnionMatches = matchesLocalUnions(
+    chunk?.localUnion,
+    filters.localUnions
+  );
+  const agreementTypeMatches = matchesSingle(
+    chunk?.agreementType,
+    filters.agreementTypes
+  );
+  const stateMatches = matchesStates(chunk?.state, filters.states);
+  const nationalDatabaseMatches = matchesNationalDatabase(chunk, filters);
+
+  return (
+    chapterMatches &&
+    localUnionMatches &&
+    agreementTypeMatches &&
+    stateMatches &&
+    nationalDatabaseMatches
+  );
 }
 
 function formatFiltersForPrompt(filters: Required<ChatScopeFilters>): string {
@@ -118,11 +200,18 @@ export async function POST(req: Request) {
     const filters = normalizeFilters(body.filters);
 
     const question = getLastUserQuestion(requestMessages);
-    const chunks: any[] = await retrieveAcrossAllKBs(question, 12);
+    const chunks: any[] = await retrieveAcrossAllKBs(question, {
+      perKb: 12,
+      includeNationalDatabase: filters.includeNationalAgreements,
+    });
 
-    if (!chunks.length) {
+    const filteredChunks = chunks.filter((chunk) =>
+      chunkMatchesFilters(chunk, filters)
+    );
+
+    if (!filteredChunks.length) {
       responseText =
-        "I could not find relevant agreement excerpts for that question. Try rephrasing the question or broadening the scope.";
+        "I could not find relevant agreement excerpts within the current scope. Try broadening the Chapter, Local Union, Agreement Type, or State filters.";
 
       await appendChatLog({
         ts,
@@ -131,13 +220,13 @@ export async function POST(req: Request) {
         userAgent,
         requestMessages,
         responseText,
-        retrievalResults: [],
+        retrievalResults: chunks.map((c) => c?.raw ?? c),
       });
 
       return NextResponse.json({ text: responseText });
     }
 
-    const context = chunks
+    const context = filteredChunks
       .slice(0, 12)
       .map((c, i) => {
         const kbName = c?.kbName ? String(c.kbName) : "Unknown KB";
@@ -160,7 +249,6 @@ Rules:
 - If the answer is not clear from the excerpts, say that plainly.
 - End with a short "Sources:" section listing the document/file names you relied on.
 - Keep user-facing language agreement-focused, not knowledge-base-focused.
-- Treat the current scope below as user intent and context, but do not refuse to answer merely because metadata is incomplete.
 
 Current scope:
 ${formatFiltersForPrompt(filters)}
@@ -170,17 +258,12 @@ ${formatFiltersForPrompt(filters)}
       {
         type: "message",
         role: "system",
-        content: [{ type: "input_text", text: CONSTITUTION }],
+        content: CONSTITUTION,
       },
       {
         type: "message",
         role: "system",
-        content: [
-          {
-            type: "input_text",
-            text: `${contextInstruction}\n\nRetrieved context:\n${context}`,
-          },
-        ],
+        content: `${contextInstruction}\n\nRetrieved context:\n${context}`,
       },
       ...normalizeMessagesForResponsesApi(requestMessages),
     ];
@@ -191,7 +274,7 @@ ${formatFiltersForPrompt(filters)}
     });
 
     responseText = response.output_text ?? "";
-    retrievalResults = chunks.map((c) => c?.raw ?? c);
+    retrievalResults = filteredChunks.map((c) => c?.raw ?? c);
 
     await appendChatLog({
       ts,

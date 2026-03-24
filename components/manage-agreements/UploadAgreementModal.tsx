@@ -29,6 +29,23 @@ type UploadAgreementModalProps = {
   onUpload: () => void;
 };
 
+function getUploadProgressPercent(status: string | null): number {
+  if (!status) return 0;
+
+  const value = status.toLowerCase();
+
+  if (value.includes("preparing")) return 8;
+  if (value.includes("storing original")) return 18;
+  if (value.includes("extracting text")) return 32;
+  if (value.includes("uploading to openai")) return 50;
+  if (value.includes("indexing")) return 72;
+  if (value.includes("refreshing agreements")) return 90;
+  if (value.includes("done")) return 100;
+
+  if (value.includes("uploading")) return 12;
+  return 0;
+}
+
 export default function UploadAgreementModal({
   isOpen,
   isUploading,
@@ -55,6 +72,8 @@ export default function UploadAgreementModal({
   onUpload,
 }: UploadAgreementModalProps) {
   if (!isOpen) return null;
+
+  const progressPercent = getUploadProgressPercent(uploadStatus);
 
   const dropZoneStyle: React.CSSProperties = {
     marginTop: 14,
@@ -116,10 +135,10 @@ export default function UploadAgreementModal({
               onHandleDroppedFiles(e.dataTransfer.files);
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
               Drag and drop agreement files here
             </div>
-            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 12 }}>
+            <div style={{ color: "var(--muted)" }}>
               Supports PDF, DOC, DOCX, and TXT
             </div>
 
@@ -127,18 +146,19 @@ export default function UploadAgreementModal({
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.doc,.docx,.txt"
-              style={{ display: "none" }}
+              hidden
               onChange={(e) => onHandleDroppedFiles(e.target.files)}
             />
 
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              style={styles.btn}
-            >
-              Browse Files
-            </button>
+            <div style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={styles.btn}
+              >
+                Browse Files
+              </button>
+            </div>
 
             {agreementFiles.length > 0 && (
               <div style={{ marginTop: 14, textAlign: "left" }}>
@@ -151,9 +171,24 @@ export default function UploadAgreementModal({
                 >
                   Selected files
                 </div>
-                <div style={{ display: "grid", gap: 6 }}>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 6,
+                  }}
+                >
                   {agreementFiles.map((file) => (
-                    <div key={`${file.name}-${file.size}`} style={{ color: "var(--muted)" }}>
+                    <div
+                      key={`${file.name}-${file.size}`}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        background: "#fff",
+                        border: "1px solid var(--border)",
+                        fontSize: 14,
+                      }}
+                    >
                       {file.name}
                     </div>
                   ))}
@@ -166,7 +201,7 @@ export default function UploadAgreementModal({
             style={{
               marginTop: 16,
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 12,
             }}
           >
@@ -183,8 +218,6 @@ export default function UploadAgreementModal({
                 Agreement Name
               </label>
               <input
-                type="text"
-                placeholder="Optional display name"
                 value={agreementName}
                 onChange={(e) => onAgreementNameChange(e.target.value)}
                 style={styles.input}
@@ -204,8 +237,6 @@ export default function UploadAgreementModal({
                 Chapter
               </label>
               <input
-                type="text"
-                placeholder="Chapter"
                 value={chapter}
                 onChange={(e) => onChapterChange(e.target.value)}
                 style={styles.input}
@@ -222,11 +253,9 @@ export default function UploadAgreementModal({
                   color: "var(--muted-strong)",
                 }}
               >
-                Local Union
+                Local Union(s)
               </label>
               <input
-                type="text"
-                placeholder="Local Union"
                 value={localUnion}
                 onChange={(e) => onLocalUnionChange(e.target.value)}
                 style={styles.input}
@@ -246,8 +275,6 @@ export default function UploadAgreementModal({
                 Agreement Type
               </label>
               <input
-                type="text"
-                placeholder="Agreement Type"
                 value={agreementType}
                 onChange={(e) => onAgreementTypeChange(e.target.value)}
                 style={styles.input}
@@ -267,44 +294,97 @@ export default function UploadAgreementModal({
                 State(s)
               </label>
               <input
-                type="text"
-                placeholder="Example: LA or LA, MS"
                 value={states}
                 onChange={(e) => onStatesChange(e.target.value)}
                 style={styles.input}
               />
             </div>
+
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: "var(--muted-strong)",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={shareToNationalDatabase}
+                  onChange={(e) =>
+                    onShareToNationalDatabaseChange(e.target.checked)
+                  }
+                />
+                Make available to National Database
+              </label>
+
+              <div
+                style={{
+                  marginTop: 6,
+                  color: "var(--muted)",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                If selected, this agreement can be searched by all authorized users
+                in the system. Otherwise, it will remain limited to its
+                chapter/private scope once access controls are wired in.
+              </div>
+            </div>
           </div>
 
-          <div style={{ marginTop: 16, ...styles.checkboxRow }}>
-            <input
-              id="shareToNationalDatabase"
-              type="checkbox"
-              checked={shareToNationalDatabase}
-              onChange={(e) => onShareToNationalDatabaseChange(e.target.checked)}
-            />
-            <label htmlFor="shareToNationalDatabase">
-              Make available to National Database
-            </label>
-          </div>
+          {uploadStatus && (
+            <div style={{ marginTop: 16 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                  gap: 12,
+                }}
+              >
+                <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
+                  {uploadStatus}
+                </div>
+                <div
+                  style={{
+                    color: "var(--muted)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {progressPercent}%
+                </div>
+              </div>
 
-          <div
-            style={{
-              marginTop: 8,
-              color: "var(--muted)",
-              fontSize: 12,
-              lineHeight: 1.5,
-            }}
-          >
-            If selected, this agreement can be searched by all authorized users in
-            the system. Otherwise, it will remain limited to its chapter/private
-            scope once access controls are wired in.
-          </div>
-
-          {uploadStatus && <div style={styles.successBox}>{uploadStatus}</div>}
+              <div
+                style={{
+                  height: 10,
+                  borderRadius: 999,
+                  background: "rgba(31, 58, 95, 0.10)",
+                  overflow: "hidden",
+                  border: "1px solid rgba(31, 58, 95, 0.08)",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${progressPercent}%`,
+                    height: "100%",
+                    borderRadius: 999,
+                    background: "var(--brand-gradient)",
+                    transition: "width 280ms ease",
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {uploadError && (
-            <div style={styles.errorBox}>
+            <div style={{ ...styles.errorBox, marginTop: 16 }}>
               <b>Upload error:</b> {uploadError}
             </div>
           )}

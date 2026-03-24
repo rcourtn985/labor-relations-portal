@@ -11,15 +11,92 @@ import {
   KBIndexResponse,
 } from "./types";
 
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
+type SearchResultRow = {
+  id: string;
+  agreementName: string;
+  collectionId: string;
+  filename: string;
+  uploadedAt: number;
+  chapter: string;
+  localUnion: string;
+  agreementType: string;
+  states: string;
+  sharedToCbas: boolean;
+};
+
+function normalizeValue(value: string | null | undefined) {
+  return (value ?? "").trim();
+}
+
+function splitCommaSeparated(value: string | null | undefined): string[] {
+  return normalizeValue(value)
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function toOptionArray(values: string[]): FilterOption[] {
+  return [...new Set(values)]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({
+      value,
+      label: value,
+    }));
+}
+
+function matchesSingle(value: string, selected: string[]) {
+  if (selected.length === 0) return true;
+  return selected.includes(value);
+}
+
+function matchesMultiValue(value: string, selected: string[]) {
+  if (selected.length === 0) return true;
+  const parts = splitCommaSeparated(value);
+  return parts.some((part) => selected.includes(part));
+}
+
+function getEditProgressPercent(status: string | null): number {
+  if (!status) return 0;
+
+  const value = status.toLowerCase();
+
+  if (value.includes("saving changes")) return 25;
+  if (value.includes("syncing shared copies")) return 60;
+  if (value.includes("refreshing agreements")) return 85;
+  if (value.includes("done") || value.includes("saved")) return 100;
+
+  if (value.includes("saving")) return 35;
+  return 0;
+}
+
 export default function ManageAgreementsPageClient() {
   const [kbIndex, setKbIndex] = useState<KBIndexResponse | null>(null);
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
   const [loadingCollections, setLoadingCollections] = useState(false);
 
   const [filesLoading, setFilesLoading] = useState(false);
-  const [filesData, setFilesData] = useState<KBFilesResponse | null>(null);
+  const [allAgreementRows, setAllAgreementRows] = useState<AgreementRow[]>([]);
 
   const [error, setError] = useState<string | null>(null);
+
+  const [agreementNameQuery, setAgreementNameQuery] = useState("");
+  const [contentSearchQuery, setContentSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRows, setSearchRows] = useState<AgreementRow[] | null>(null);
+
+  const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
+  const [selectedLocalUnions, setSelectedLocalUnions] = useState<string[]>([]);
+  const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>([]);
+  const [selectedStates, setSelectedStates] = useState<string[]>([]);
+  const [nationalDatabaseFilter, setNationalDatabaseFilter] =
+    useState<"all" | "shared">("all");
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
@@ -44,6 +121,8 @@ export default function ManageAgreementsPageClient() {
   const [editLocalUnion, setEditLocalUnion] = useState("");
   const [editAgreementType, setEditAgreementType] = useState("");
   const [editStates, setEditStates] = useState("");
+  const [editShareToNationalDatabase, setEditShareToNationalDatabase] =
+    useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
@@ -57,28 +136,57 @@ export default function ManageAgreementsPageClient() {
     return data;
   }
 
-  async function loadFiles(collectionId: string) {
-    if (!collectionId) {
-      setFilesData(null);
-      return;
-    }
-
+  async function loadAllAgreements(indexOverride?: KBIndexResponse) {
     setFilesLoading(true);
     setError(null);
-    setFilesData(null);
 
     try {
-      const res = await fetch(`/api/kb/files?kbId=${encodeURIComponent(collectionId)}`);
-      const data = await res.json();
+      const index = indexOverride ?? (await loadCollections());
+      const collections = index?.userKbs ?? [];
 
-      if (!res.ok) {
-        setError(data?.error ?? "Failed to load agreements.");
-        return;
-      }
+      const fileResults = await Promise.all(
+        collections.map(async (collection) => {
+          const res = await fetch(
+            `/api/kb/files?kbId=${encodeURIComponent(collection.id)}`
+          );
+          const data = await res.json();
 
-      setFilesData(data as KBFilesResponse);
-    } catch {
-      setError("Failed to load agreements.");
+          if (!res.ok) {
+            throw new Error(data?.error ?? `Failed to load ${collection.name}`);
+          }
+
+          return data as KBFilesResponse;
+        })
+      );
+
+      const rows: AgreementRow[] = fileResults.flatMap((filesData) => {
+        const sortedFiles = [...filesData.files].sort(
+          (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
+        );
+
+        return sortedFiles.map((file) => ({
+          id: file.id,
+          agreementName: filesData.kbName || "(untitled agreement)",
+          chapter: file.chapter?.trim() || "—",
+          localUnion: file.localUnion?.trim() || "—",
+          agreementType: file.agreementType?.trim() || "—",
+          states: file.states?.trim() || "—",
+          filename: file.filename ?? "(unknown)",
+          uploadedAt: file.created_at ?? 0,
+          status: file.status ?? "",
+          collectionId: filesData.kbId,
+          collectionName: filesData.kbName,
+          fileId: file.file_id,
+          fileUrl: file.fileUrl ?? null,
+          sharedToCbas: Boolean(file.sharedToCbas),
+        }));
+      });
+
+      rows.sort((a, b) => b.uploadedAt - a.uploadedAt);
+      setAllAgreementRows(rows);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load agreements.");
+      setAllAgreementRows([]);
     } finally {
       setFilesLoading(false);
     }
@@ -112,6 +220,18 @@ export default function ManageAgreementsPageClient() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  }
+
+  function clearFilters() {
+    setAgreementNameQuery("");
+    setContentSearchQuery("");
+    setSearchRows(null);
+    setSearchError(null);
+    setSelectedChapters([]);
+    setSelectedLocalUnions([]);
+    setSelectedAgreementTypes([]);
+    setSelectedStates([]);
+    setNationalDatabaseFilter("all");
   }
 
   function openUploadModal() {
@@ -150,7 +270,7 @@ export default function ManageAgreementsPageClient() {
 
     try {
       setIsUploading(true);
-      setUploadStatus("Uploading and indexing agreement files…");
+      setUploadStatus("Preparing upload...");
 
       const form = new FormData();
       form.append("name", buildCollectionName());
@@ -166,6 +286,8 @@ export default function ManageAgreementsPageClient() {
       form.append("cbaType", agreementType.trim());
       form.append("state", states.trim());
 
+      setUploadStatus("Uploading to OpenAI and processing agreement...");
+
       const res = await fetch("/api/kb/create", {
         method: "POST",
         body: form,
@@ -177,18 +299,9 @@ export default function ManageAgreementsPageClient() {
         throw new Error(data?.error ?? "Upload failed");
       }
 
-      setUploadStatus("Upload complete. Refreshing agreements…");
-
+      setUploadStatus("Refreshing agreements...");
       const refreshed = await loadCollections();
-
-      if (data?.id) {
-        setSelectedCollectionId(data.id);
-        await loadFiles(data.id);
-      } else if (refreshed?.userKbs?.length) {
-        const newest = refreshed.userKbs[0];
-        setSelectedCollectionId(newest.id);
-        await loadFiles(newest.id);
-      }
+      await loadAllAgreements(refreshed);
 
       setUploadStatus("Done.");
       setIsUploadModalOpen(false);
@@ -207,6 +320,7 @@ export default function ManageAgreementsPageClient() {
     setEditLocalUnion(row.localUnion === "—" ? "" : row.localUnion);
     setEditAgreementType(row.agreementType === "—" ? "" : row.agreementType);
     setEditStates(row.states === "—" ? "" : row.states);
+    setEditShareToNationalDatabase(Boolean(row.sharedToCbas));
     setEditError(null);
     setEditStatus(null);
     setIsEditModalOpen(true);
@@ -228,20 +342,25 @@ export default function ManageAgreementsPageClient() {
 
     try {
       setIsSavingEdit(true);
+      setEditStatus("Saving changes...");
 
-      const res = await fetch(`/api/agreements/${encodeURIComponent(editingAgreementId)}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          agreementName: editAgreementName,
-          chapter: editChapter,
-          localUnion: editLocalUnion,
-          agreementType: editAgreementType,
-          states: editStates,
-        }),
-      });
+      const res = await fetch(
+        `/api/agreements/${encodeURIComponent(editingAgreementId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            agreementName: editAgreementName,
+            chapter: editChapter,
+            localUnion: editLocalUnion,
+            agreementType: editAgreementType,
+            states: editStates,
+            sharedToCbas: editShareToNationalDatabase,
+          }),
+        }
+      );
 
       const data = await res.json();
 
@@ -249,8 +368,15 @@ export default function ManageAgreementsPageClient() {
         throw new Error(data?.error ?? "Failed to save changes.");
       }
 
-      setEditStatus("Saved.");
-      await loadFiles(selectedCollectionId);
+      setEditStatus("Syncing shared copies...");
+      await loadAllAgreements();
+
+      if (contentSearchQuery.trim()) {
+        setEditStatus("Refreshing agreements...");
+        await runContentSearch(contentSearchQuery);
+      }
+
+      setEditStatus("Done.");
       setIsEditModalOpen(false);
     } catch (e: any) {
       setEditError(e?.message ?? "Failed to save changes.");
@@ -261,8 +387,58 @@ export default function ManageAgreementsPageClient() {
 
   function openUploadedFile(_row: AgreementRow) {
     setError(
-      "Opening the original file is not available yet. OpenAI blocks downloading assistants-purpose files, so we will need to store original uploads in our own storage to support this."
+      "Opening the original file is not available yet. Original file storage is now in place, so the next step will be wiring this action to the stored file."
     );
+  }
+
+  async function runContentSearch(query: string) {
+    const trimmed = query.trim();
+
+    if (!trimmed) {
+      setSearchRows(null);
+      setSearchError(null);
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError(null);
+
+    try {
+      const res = await fetch(
+        `/api/agreements/search?q=${encodeURIComponent(trimmed)}`
+      );
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Search failed.");
+      }
+
+      const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
+        (row) => ({
+          id: row.id,
+          agreementName: row.agreementName || "(untitled agreement)",
+          chapter: row.chapter?.trim() || "—",
+          localUnion: row.localUnion?.trim() || "—",
+          agreementType: row.agreementType?.trim() || "—",
+          states: row.states?.trim() || "—",
+          filename: row.filename ?? "(unknown)",
+          uploadedAt: row.uploadedAt ?? 0,
+          status: "stored",
+          collectionId: row.collectionId ?? "",
+          collectionName: row.agreementName || "",
+          fileId: "",
+          fileUrl: null,
+          sharedToCbas: Boolean(row.sharedToCbas),
+        })
+      );
+
+      setSearchRows(rows);
+    } catch (e: any) {
+      setSearchError(e?.message ?? "Search failed.");
+      setSearchRows([]);
+    } finally {
+      setSearchLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -270,15 +446,7 @@ export default function ManageAgreementsPageClient() {
       try {
         setLoadingCollections(true);
         const data = await loadCollections();
-
-        const firstUserCollection = data?.userKbs?.[0];
-        if (firstUserCollection) {
-          setSelectedCollectionId(firstUserCollection.id);
-          await loadFiles(firstUserCollection.id);
-        } else {
-          setSelectedCollectionId("");
-          setFilesData(null);
-        }
+        await loadAllAgreements(data);
       } catch {
         setError("Failed to load agreement collections.");
       } finally {
@@ -287,36 +455,109 @@ export default function ManageAgreementsPageClient() {
     })();
   }, []);
 
-  const agreementCollections = kbIndex?.userKbs ?? [];
+  useEffect(() => {
+    const trimmed = contentSearchQuery.trim();
 
-  const sortedFiles =
-    filesData?.files
-      ? [...filesData.files].sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
-      : [];
+    if (!trimmed) {
+      setSearchRows(null);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
+    }
 
-  const agreementRows: AgreementRow[] = useMemo(() => {
-    if (!filesData?.files?.length) return [];
+    const timeout = window.setTimeout(() => {
+      runContentSearch(trimmed);
+    }, 300);
 
-    return sortedFiles.map((file) => ({
-      id: file.id,
-      agreementName: filesData.kbName || "(untitled agreement)",
-      chapter: file.chapter?.trim() || "—",
-      localUnion: file.localUnion?.trim() || "—",
-      agreementType: file.agreementType?.trim() || "—",
-      states: file.states?.trim() || "—",
-      filename: file.filename ?? "(unknown)",
-      uploadedAt: file.created_at ?? 0,
-      status: file.status ?? "",
-      collectionId: filesData.kbId,
-      collectionName: filesData.kbName,
-      fileId: file.file_id,
-      fileUrl: file.fileUrl ?? null,
-    }));
-  }, [filesData, sortedFiles]);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [contentSearchQuery]);
 
-  const selectedCollectionName =
-    agreementCollections.find((collection) => collection.id === selectedCollectionId)?.name ??
-    "";
+  const chapterOptions = useMemo(
+    () =>
+      toOptionArray(
+        allAgreementRows
+          .map((row) => normalizeValue(row.chapter))
+          .filter((value) => value && value !== "—")
+      ),
+    [allAgreementRows]
+  );
+
+  const localUnionOptions = useMemo(
+    () =>
+      toOptionArray(
+        allAgreementRows.flatMap((row) =>
+          splitCommaSeparated(row.localUnion === "—" ? "" : row.localUnion)
+        )
+      ),
+    [allAgreementRows]
+  );
+
+  const agreementTypeOptions = useMemo(
+    () =>
+      toOptionArray(
+        allAgreementRows
+          .map((row) => normalizeValue(row.agreementType))
+          .filter((value) => value && value !== "—")
+      ),
+    [allAgreementRows]
+  );
+
+  const stateOptions = useMemo(
+    () =>
+      toOptionArray(
+        allAgreementRows.flatMap((row) =>
+          splitCommaSeparated(row.states === "—" ? "" : row.states)
+        )
+      ),
+    [allAgreementRows]
+  );
+
+  const baseRows = searchRows ?? allAgreementRows;
+
+  const filteredAgreementRows = useMemo(() => {
+    const nameNeedle = agreementNameQuery.trim().toLowerCase();
+
+    return baseRows.filter((row) => {
+      const matchesName =
+        !nameNeedle || row.agreementName.toLowerCase().includes(nameNeedle);
+
+      const matchesChapterFilter = matchesSingle(row.chapter, selectedChapters);
+      const matchesLocalUnionFilter = matchesMultiValue(
+        row.localUnion === "—" ? "" : row.localUnion,
+        selectedLocalUnions
+      );
+      const matchesAgreementTypeFilter = matchesSingle(
+        row.agreementType,
+        selectedAgreementTypes
+      );
+      const matchesStateFilter = matchesMultiValue(
+        row.states === "—" ? "" : row.states,
+        selectedStates
+      );
+      const matchesNationalFilter =
+        nationalDatabaseFilter === "all" ||
+        (nationalDatabaseFilter === "shared" && row.sharedToCbas);
+
+      return (
+        matchesName &&
+        matchesChapterFilter &&
+        matchesLocalUnionFilter &&
+        matchesAgreementTypeFilter &&
+        matchesStateFilter &&
+        matchesNationalFilter
+      );
+    });
+  }, [
+    baseRows,
+    agreementNameQuery,
+    selectedChapters,
+    selectedLocalUnions,
+    selectedAgreementTypes,
+    selectedStates,
+    nationalDatabaseFilter,
+  ]);
 
   return (
     <div style={styles.page}>
@@ -337,17 +578,34 @@ export default function ManageAgreementsPageClient() {
       )}
 
       <AgreementDatabaseCard
-        selectedCollectionId={selectedCollectionId}
-        selectedCollectionName={selectedCollectionName}
-        agreementCollections={agreementCollections}
-        filesLoading={filesLoading}
-        loadingCollections={loadingCollections}
-        filesData={filesData}
-        agreementRows={agreementRows}
-        onSelectedCollectionChange={setSelectedCollectionId}
-        onLoadFiles={() => loadFiles(selectedCollectionId)}
-        onRefreshCollections={() =>
-          loadCollections().catch(() => setError("Failed to refresh collections."))
+        filesLoading={filesLoading || loadingCollections}
+        searchLoading={searchLoading}
+        searchError={searchError}
+        agreementRows={allAgreementRows}
+        filteredAgreementRows={filteredAgreementRows}
+        agreementNameQuery={agreementNameQuery}
+        contentSearchQuery={contentSearchQuery}
+        chapterOptions={chapterOptions}
+        localUnionOptions={localUnionOptions}
+        agreementTypeOptions={agreementTypeOptions}
+        stateOptions={stateOptions}
+        selectedChapters={selectedChapters}
+        selectedLocalUnions={selectedLocalUnions}
+        selectedAgreementTypes={selectedAgreementTypes}
+        selectedStates={selectedStates}
+        nationalDatabaseFilter={nationalDatabaseFilter}
+        onAgreementNameQueryChange={setAgreementNameQuery}
+        onContentSearchQueryChange={setContentSearchQuery}
+        onSelectedChaptersChange={setSelectedChapters}
+        onSelectedLocalUnionsChange={setSelectedLocalUnions}
+        onSelectedAgreementTypesChange={setSelectedAgreementTypes}
+        onSelectedStatesChange={setSelectedStates}
+        onNationalDatabaseFilterChange={setNationalDatabaseFilter}
+        onClearFilters={clearFilters}
+        onRefreshAgreements={() =>
+          loadAllAgreements().catch(() =>
+            setError("Failed to refresh agreements.")
+          )
         }
         onOpenUploadedFile={openUploadedFile}
         onOpenEditModal={openEditModal}
@@ -460,7 +718,7 @@ export default function ManageAgreementsPageClient() {
                       color: "var(--muted-strong)",
                     }}
                   >
-                    Local Union
+                    Local Union(s)
                   </label>
                   <input
                     type="text"
@@ -509,9 +767,76 @@ export default function ManageAgreementsPageClient() {
                     style={styles.input}
                   />
                 </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      fontWeight: 700,
+                      fontSize: 13,
+                      color: "var(--muted-strong)",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editShareToNationalDatabase}
+                      onChange={(e) =>
+                        setEditShareToNationalDatabase(e.target.checked)
+                      }
+                    />
+                    Share to National Agreement Database
+                  </label>
+                </div>
               </div>
 
-              {editStatus && <div style={styles.successBox}>{editStatus}</div>}
+              {editStatus && (
+                <div style={{ marginTop: 16 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 8,
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
+                      {editStatus}
+                    </div>
+                    <div
+                      style={{
+                        color: "var(--muted)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {getEditProgressPercent(editStatus)}%
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      height: 10,
+                      borderRadius: 999,
+                      background: "rgba(31, 58, 95, 0.10)",
+                      overflow: "hidden",
+                      border: "1px solid rgba(31, 58, 95, 0.08)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${getEditProgressPercent(editStatus)}%`,
+                        height: "100%",
+                        borderRadius: 999,
+                        background: "var(--brand-gradient)",
+                        transition: "width 280ms ease",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {editError && (
                 <div style={styles.errorBox}>

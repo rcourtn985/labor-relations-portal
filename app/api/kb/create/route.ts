@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
-import path from "path";
-import { promises as fs } from "fs";
-import fssync from "fs";
-import formidable from "formidable";
 import { prisma } from "@/lib/prisma";
+import { storeOriginalFile } from "@/lib/storage";
+import { extractTextFromFile } from "@/lib/text-extraction";
 
-export const runtime = "nodejs"; // ensure Node runtime (needed for fs/formidable)
+export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const UPLOAD_TMP_DIR = path.join(process.cwd(), "tmp_uploads");
-
-// Keep the MVP allowlist tight (you can expand later)
 const ALLOWED_EXTS = new Set([".pdf", ".doc", ".docx", ".txt"]);
-
-// For now (no auth yet), we attach created KBs + docs to the seeded "system" user.
 const DEFAULT_OWNER_USER_ID = "system";
 
 function safeId() {
@@ -27,99 +20,102 @@ async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function firstField(fields: any, key: string): string | undefined {
-  const v = fields?.[key];
-  if (Array.isArray(v)) return v[0];
-  if (typeof v === "string") return v;
-  return undefined;
-}
-
-function parseBool(v: string | undefined): boolean {
-  if (!v) return false;
-  const s = String(v).trim().toLowerCase();
+function parseBool(v: FormDataEntryValue | null): boolean {
+  if (typeof v !== "string") return false;
+  const s = v.trim().toLowerCase();
   return s === "true" || s === "1" || s === "yes" || s === "on";
 }
 
-async function getVectorStoreAttachedFilenames(vectorStoreId: string): Promise<Set<string>> {
+function getString(formData: FormData, key: string): string | undefined {
+  const value = formData.get(key);
+  return typeof value === "string" ? value : undefined;
+}
+
+function getFiles(formData: FormData, key: string): File[] {
+  return formData
+    .getAll(key)
+    .filter((value): value is File => value instanceof File && value.size > 0);
+}
+
+function getExtension(filename: string): string {
+  const idx = filename.lastIndexOf(".");
+  return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
+}
+
+async function getVectorStoreAttachedFilenames(
+  vectorStoreId: string
+): Promise<Set<string>> {
   const names = new Set<string>();
   const list = await openai.vectorStores.files.list(vectorStoreId, { limit: 100 });
   const items = list.data ?? [];
+
   for (const it of items) {
-    const fileId = (it as any)?.id;
+    const fileId = (it as { id?: string })?.id;
     if (!fileId) continue;
+
     try {
       const f = await openai.files.retrieve(fileId);
-      const filename = ((f as any)?.filename ?? (f as any)?.name ?? "").trim();
+      const filename = (
+        (f as { filename?: string; name?: string })?.filename ??
+        (f as { filename?: string; name?: string })?.name ??
+        ""
+      ).trim();
+
       if (filename) names.add(filename);
     } catch {
       // best effort
     }
   }
+
   return names;
 }
 
-// Helper: parse multipart/form-data with formidable
-async function parseForm(req: Request): Promise<{ fields: any; files: any }> {
-  await fs.mkdir(UPLOAD_TMP_DIR, { recursive: true });
-
-  const form = formidable({
-    multiples: true,
-    uploadDir: UPLOAD_TMP_DIR,
-    keepExtensions: true,
-    maxFileSize: 25 * 1024 * 1024, // 25MB per file for MVP
-  });
-
-  // formidable expects Node IncomingMessage; Next.js Request gives us a web stream.
-  // We convert using a small adapter.
-  const { Readable } = await import("stream");
-  // @ts-ignore
-  const nodeReq: any = Readable.fromWeb(req.body as any);
-  nodeReq.headers = Object.fromEntries(req.headers.entries());
-  nodeReq.method = req.method;
-
-  return await new Promise((resolve, reject) => {
-    form.parse(nodeReq, (err, fields, files) => {
-      if (err) reject(err);
-      else resolve({ fields, files });
-    });
-  });
-}
+type PreparedDocument = {
+  openaiFileId: string;
+  filename: string;
+  storageProvider: string | null;
+  storageKey: string | null;
+  mimeType: string | null;
+  fileSizeBytes: number | null;
+  sha256: string | null;
+  extractedText: string;
+  extractionState: string;
+};
 
 export async function POST(req: Request) {
-  let uploadedFiles: any[] = [];
-
   try {
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: "OPENAI_API_KEY missing." }, { status: 500 });
+      return NextResponse.json(
+        { error: "OPENAI_API_KEY missing." },
+        { status: 500 }
+      );
     }
 
-    const { fields, files } = await parseForm(req);
+    const formData = await req.formData();
 
-    const name = firstField(fields, "name");
-
-    if (!name || typeof name !== "string") {
+    const name = getString(formData, "name");
+    if (!name || !name.trim()) {
       return NextResponse.json({ error: "Missing 'name'." }, { status: 400 });
     }
 
-    // CBA flags + metadata (applies to all files in this create action for MVP)
-    const isCba = parseBool(firstField(fields, "isCba"));
-    const shareToCbas = parseBool(firstField(fields, "shareToCbas"));
+    const trimmedName = name.trim();
 
-    const chapter = (firstField(fields, "chapter") ?? "").trim() || null;
-    const localUnion = (firstField(fields, "localUnion") ?? "").trim() || null;
-    const cbaType = (firstField(fields, "cbaType") ?? "").trim() || null;
-    const state = (firstField(fields, "state") ?? "").trim() || null; // can be "LA, MS"
+    const isCba = parseBool(formData.get("isCba"));
+    const shareToCbas = parseBool(formData.get("shareToCbas"));
 
-    const fileField = files?.files;
-    uploadedFiles = Array.isArray(fileField) ? fileField : fileField ? [fileField] : [];
+    const chapter = getString(formData, "chapter")?.trim() || null;
+    const localUnion = getString(formData, "localUnion")?.trim() || null;
+    const cbaType = getString(formData, "cbaType")?.trim() || null;
+    const state = getString(formData, "state")?.trim() || null;
+
+    const uploadedFiles = getFiles(formData, "files");
 
     if (uploadedFiles.length === 0) {
       return NextResponse.json({ error: "No files uploaded." }, { status: 400 });
     }
 
-    // Prevent duplicate KB names (simple MVP rule)
     const existing = await prisma.knowledgeBase.findFirst({
-      where: { ownerUserId: DEFAULT_OWNER_USER_ID, name },
+      where: { ownerUserId: DEFAULT_OWNER_USER_ID, name: trimmedName },
       select: { id: true },
     });
 
@@ -130,22 +126,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create vector store for this KB
-    const vs = await openai.vectorStores.create({ name: `User KB: ${name}` });
+    const vs = await openai.vectorStores.create({ name: `User KB: ${trimmedName}` });
 
-    // Upload each file to OpenAI Files API and attach
-    const createdDocs: { openaiFileId: string; filename: string }[] = [];
+    const preparedDocs: PreparedDocument[] = [];
 
-    for (const f of uploadedFiles) {
-      const filePath = f.filepath || f.path; // formidable v2/v3 differences
-      if (!filePath) {
-        return NextResponse.json({ error: "Upload missing temp filepath." }, { status: 400 });
-      }
+    for (const file of uploadedFiles) {
+      const original = file.name?.trim() || `upload_${Date.now()}`;
+      const ext = getExtension(original);
 
-      const original =
-        f.originalFilename || f.name || path.basename(filePath) || `upload_${Date.now()}`;
-
-      const ext = path.extname(original).toLowerCase();
       if (!ALLOWED_EXTS.has(ext)) {
         return NextResponse.json(
           {
@@ -157,8 +145,21 @@ export async function POST(req: Request) {
         );
       }
 
-      // Force OpenAI to receive the original filename (and extension)
-      const fileForOpenAI = await toFile(fssync.createReadStream(filePath), original);
+      const bytes = Buffer.from(await file.arrayBuffer());
+
+      const stored = await storeOriginalFile({
+        filename: original,
+        bytes,
+        mimeType: file.type || null,
+      });
+
+      const extracted = await extractTextFromFile({
+        filename: original,
+        bytes,
+        mimeType: file.type || null,
+      });
+
+      const fileForOpenAI = await toFile(bytes, original);
 
       const openaiFile = await openai.files.create({
         file: fileForOpenAI,
@@ -167,13 +168,19 @@ export async function POST(req: Request) {
 
       await openai.vectorStores.files.create(vs.id, { file_id: openaiFile.id });
 
-      createdDocs.push({
+      preparedDocs.push({
         openaiFileId: openaiFile.id,
         filename: original,
+        storageProvider: stored.provider,
+        storageKey: stored.storageKey,
+        mimeType: stored.mimeType,
+        fileSizeBytes: stored.fileSizeBytes,
+        sha256: stored.sha256,
+        extractedText: extracted.extractedText,
+        extractionState: extracted.extractionState,
       });
     }
 
-    // Wait for indexing to complete
     while (true) {
       const current = await openai.vectorStores.retrieve(vs.id);
       const inProgress = current.file_counts?.in_progress ?? 0;
@@ -181,21 +188,19 @@ export async function POST(req: Request) {
       await sleep(1500);
     }
 
-    // Create KB row
     const id = safeId();
 
     await prisma.knowledgeBase.create({
       data: {
         id,
-        name,
+        name: trimmedName,
         vectorStoreId: vs.id,
         visibility: "PRIVATE",
         ownerUserId: DEFAULT_OWNER_USER_ID,
       },
     });
 
-    // Create Document rows for the new KB (per-row create to play nice with uniqueness)
-    for (const d of createdDocs) {
+    for (const d of preparedDocs) {
       try {
         await prisma.document.create({
           data: {
@@ -209,20 +214,39 @@ export async function POST(req: Request) {
             cbaType,
             state,
             sharedToCbas: isCba && shareToCbas,
+            storageProvider: d.storageProvider,
+            storageKey: d.storageKey,
+            mimeType: d.mimeType,
+            fileSizeBytes: d.fileSizeBytes,
+            sha256: d.sha256,
+            textContent: {
+              create: {
+                extractedText: d.extractedText,
+                extractionState: d.extractionState,
+              },
+            },
           },
         });
-      } catch (e: any) {
-        // @@unique([kbId, filename]) protection
-        if (e?.code === "P2002") continue;
+      } catch (e: unknown) {
+        if (
+          typeof e === "object" &&
+          e !== null &&
+          "code" in e &&
+          (e as { code?: string }).code === "P2002"
+        ) {
+          continue;
+        }
         throw e;
       }
     }
 
-    // Optional: also add to system KB "All CBAs" (id stays cbas_shared)
     if (isCba && shareToCbas) {
       const allCbasKbId = "cbas_shared";
 
-      const allCbas = await prisma.knowledgeBase.findUnique({ where: { id: allCbasKbId } });
+      const allCbas = await prisma.knowledgeBase.findUnique({
+        where: { id: allCbasKbId },
+      });
+
       if (!allCbas) {
         return NextResponse.json(
           { error: "System KB 'cbas_shared' not found. Run seed." },
@@ -230,45 +254,46 @@ export async function POST(req: Request) {
         );
       }
 
-      // Ensure vector store exists for All CBAs
       let allCbasVsId = allCbas.vectorStoreId;
       if (!allCbasVsId || !allCbasVsId.startsWith("vs_")) {
-        const newVs = await openai.vectorStores.create({ name: `System KB: ${allCbas.name}` });
+        const newVs = await openai.vectorStores.create({
+          name: `System KB: ${allCbas.name}`,
+        });
         allCbasVsId = newVs.id;
+
         await prisma.knowledgeBase.update({
           where: { id: allCbasKbId },
           data: { vectorStoreId: allCbasVsId },
         });
       }
 
-      // Dedup against BOTH DB filenames and vector store filenames
       const existingAllCbasDocs = await prisma.document.findMany({
         where: { kbId: allCbasKbId },
         select: { filename: true },
       });
+
       const dbNames = new Set(existingAllCbasDocs.map((x) => x.filename.trim()));
 
       let vsNames = new Set<string>();
       try {
         vsNames = await getVectorStoreAttachedFilenames(allCbasVsId);
       } catch {
-        // best effort; DB-only dedupe still prevents most duplicates
+        // best effort
       }
 
       const alreadyThere = new Set<string>([...dbNames, ...vsNames]);
 
-      for (const d of createdDocs) {
-        // If the filename already exists in All CBAs, skip attaching/creating
+      for (const d of preparedDocs) {
         if (alreadyThere.has(d.filename.trim())) continue;
 
-        // Attach the SAME OpenAI file to the All CBAs vector store
-        await openai.vectorStores.files.create(allCbasVsId, { file_id: d.openaiFileId });
+        await openai.vectorStores.files.create(allCbasVsId, {
+          file_id: d.openaiFileId,
+        });
 
-        // Write the system Document row
         try {
           await prisma.document.create({
             data: {
-              ownerUserId: DEFAULT_OWNER_USER_ID, // you seeded "system" user
+              ownerUserId: DEFAULT_OWNER_USER_ID,
               kbId: allCbasKbId,
               openaiFileId: d.openaiFileId,
               filename: d.filename,
@@ -278,24 +303,36 @@ export async function POST(req: Request) {
               cbaType,
               state,
               sharedToCbas: true,
+              storageProvider: d.storageProvider,
+              storageKey: d.storageKey,
+              mimeType: d.mimeType,
+              fileSizeBytes: d.fileSizeBytes,
+              sha256: d.sha256,
+              textContent: {
+                create: {
+                  extractedText: d.extractedText,
+                  extractionState: d.extractionState,
+                },
+              },
             },
           });
-        } catch (e: any) {
-          if (e?.code !== "P2002") throw e;
+        } catch (e: unknown) {
+          if (
+            typeof e === "object" &&
+            e !== null &&
+            "code" in e &&
+            (e as { code?: string }).code === "P2002"
+          ) {
+            continue;
+          }
+          throw e;
         }
       }
     }
 
-    return NextResponse.json({ id, name, vectorStoreId: vs.id });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
-  } finally {
-    // Cleanup temp files (best effort)
-    for (const f of uploadedFiles) {
-      const filePath = f?.filepath || f?.path;
-      if (filePath) {
-        fs.unlink(filePath).catch(() => {});
-      }
-    }
+    return NextResponse.json({ id, name: trimmedName, vectorStoreId: vs.id });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

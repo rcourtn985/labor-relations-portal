@@ -105,7 +105,7 @@ export default function ActiveScopeBar({
             fontSize: 13,
           }}
         >
-          National Included
+          National Database Included
         </span>
       )}
     </div>
