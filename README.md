@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Labor Relations Portal
 
-## Getting Started
+Labor Relations Portal is a Next.js application for building a searchable agreement database and AI-assisted workspace around collective bargaining agreements and related labor documents.
 
-First, run the development server:
+The project is evolving toward a small alpha release focused on:
+- uploading and organizing agreements
+- searching agreement metadata and extracted agreement text
+- previewing agreements in-app
+- interacting with agreements through chat/RAG workflows
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Source of truth
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This repository is the source of truth for the project.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+When making changes:
+- use the current repo state, not memory
+- verify actual file paths and current code before editing
+- prefer small, grounded changes over speculative rewrites
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Current status
 
-## Learn More
+The app is currently in active pre-alpha development.
 
-To learn more about Next.js, take a look at the following resources:
+Working areas include:
+- agreement upload flow
+- agreement metadata capture and editing
+- local original file storage
+- extracted text storage for agreement content search
+- agreement database page with filters and content search
+- side-panel agreement preview
+- in-document PDF viewing with search and highlight modes
+- chat retrieval against agreement-related knowledge bases
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Current direction:
+- the agreement database is becoming the primary user workflow
+- chat is becoming a secondary or integrated workflow launched from the database experience
+- authentication, hosted storage, and production-ready database work are planned before broader alpha use
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Core features
 
-## Deploy on Vercel
+### Agreement database
+The main working surface for uploaded agreements.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Includes:
+- agreement list and filters
+- agreement metadata editing
+- content search against extracted agreement text
+- side-panel document preview
+- PDF search modes:
+  - **Precise**: highlights the exact matched word or phrase
+  - **Context**: highlights the broader matching text block
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Upload and storage
+Uploads currently:
+- create/update agreement records
+- store original uploaded files locally
+- extract PDF text for searchable agreement content
+- upload files to OpenAI/vector store workflows used by chat
+
+### Chat / RAG
+The app includes chat workflows that retrieve against agreement-related knowledge bases.
+
+Current intent is for chat to work alongside the agreement database rather than replace it.
+
+## Current tech stack
+
+- **Framework:** Next.js (App Router)
+- **Language:** TypeScript
+- **Database ORM:** Prisma
+- **Current database:** SQLite
+- **Current original file storage:** local filesystem under `storage/originals`
+- **PDF text extraction:** Python with `pypdf`
+- **PDF in-app preview/search:** custom PDF.js-based viewer page under `public/pdfjs`
+- **AI / retrieval:** OpenAI file/vector store workflows
+
+## Current architecture notes
+
+### Database
+The project currently uses SQLite for development.
+
+This is acceptable for local development and active iteration, but the long-term expectation before broader alpha use is to move to **PostgreSQL** for hosted multi-user usage.
+
+### Original file storage
+Original uploaded files are currently stored locally under:
+
+```text
+storage/originals

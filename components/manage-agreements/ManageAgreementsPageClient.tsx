@@ -1,11 +1,30 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import AgreementDatabaseCard from "./AgreementDatabaseCard";
 import ManageAgreementsHero from "./ManageAgreementsHero";
 import UploadAgreementModal from "./UploadAgreementModal";
 import { manageAgreementsStyles as styles } from "./styles";
 import { AgreementRow, KBFilesResponse, KBIndexResponse } from "./types";
+
+const AgreementPdfViewer = dynamic(
+  () => import("./AgreementPdfViewer"),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        style={{
+          padding: 18,
+          color: "var(--muted-strong)",
+          fontWeight: 700,
+        }}
+      >
+        Loading PDF viewer…
+      </div>
+    ),
+  }
+);
 
 type FilterOption = {
   value: string;
@@ -228,11 +247,9 @@ export default function ManageAgreementsPageClient() {
 
     if (trimmedAgreementName) return trimmedAgreementName;
 
-    const parts = [
-      trimmedChapter,
-      trimmedLocalUnion,
-      trimmedAgreementType,
-    ].filter(Boolean);
+    const parts = [trimmedChapter, trimmedLocalUnion, trimmedAgreementType].filter(
+      Boolean
+    );
     if (parts.length > 0) return parts.join(" - ");
 
     return "Agreement Upload";
@@ -849,16 +866,23 @@ export default function ManageAgreementsPageClient() {
 
                 {!previewLoading && !previewError && previewData?.fileUrl ? (
                   previewData.canPreviewInline ? (
-                    <iframe
-                      title={previewData.filename || "Agreement preview"}
-                      src={previewData.fileUrl}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        border: "none",
-                        background: "#fff",
-                      }}
-                    />
+                    previewData.mimeType === "application/pdf" ? (
+                      <AgreementPdfViewer
+                        fileUrl={previewData.fileUrl}
+                        searchQuery={contentSearchQuery}
+                      />
+                    ) : (
+                      <iframe
+                        title={previewData.filename || "Agreement preview"}
+                        src={previewData.fileUrl}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          border: "none",
+                          background: "#fff",
+                        }}
+                      />
+                    )
                   ) : (
                     <div
                       style={{

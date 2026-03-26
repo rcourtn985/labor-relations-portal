@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Agreement Viewer</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --panel: #ffffff;
+        --border: #d6dee8;
+        --text: #101828;
+        --muted: #5b667a;
+        --accent: #1f3a5f;
+        --accent-soft: rgba(31, 58, 95, 0.08);
+        --match: rgba(250, 204, 21, 0.45);
+        --current-match: rgba(245, 158, 11, 0.72);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: var(--panel);
+        color: var(--text);
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100%;
+        min-height: 0;
+      }
+
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(148, 163, 184, 0.04);
+      }
+
+      .toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+
+      .search-input {
+        min-width: 220px;
+        max-width: 360px;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        outline: none;
+      }
+
+      .search-input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(31, 58, 95, 0.12);
+      }
+
+      .btn {
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        border-radius: 8px;
+        padding: 7px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .btn:hover {
+        background: #f8fafc;
+      }
+
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: #fff;
+        gap: 3px;
+      }
+
+      .toggle-btn {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .toggle-btn:hover {
+        background: rgba(31, 58, 95, 0.06);
+      }
+
+      .toggle-btn.active {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      #viewerContainer {
+        position: relative;
+        overflow: auto;
+        min-height: 0;
+        background: var(--bg);
+        padding: 16px 0 28px;
+      }
+
+      #pages {
+        display: grid;
+        gap: 18px;
+        justify-items: center;
+      }
+
+      .pageWrap {
+        position: relative;
+        background: white;
+        box-shadow: 0 8px 26px rgba(16, 24, 40, 0.08);
+      }
+
+      .pageCanvas {
+        display: block;
+      }
+
+      .textLayer {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        line-height: 1;
+        opacity: 0.25;
+      }
+
+      .textLayer span {
+        position: absolute;
+        white-space: pre;
+        transform-origin: 0% 0%;
+        color: transparent;
+        user-select: text;
+        cursor: text;
+      }
+
+      .match-fragment {
+        background: var(--match);
+        color: transparent;
+        border-radius: 2px;
+      }
+
+      .match-fragment.current-match {
+        background: var(--current-match);
+      }
+
+      .context-match {
+        background: var(--match);
+        border-radius: 2px;
+      }
+
+      .context-match.current-match {
+        background: var(--current-match);
+      }
+
+      .loading,
+      .error {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 20;
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .loading {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.94);
+        color: var(--muted);
+      }
+
+      .error {
+        display: none;
+        border: 1px solid rgba(169, 68, 68, 0.24);
+        background: rgba(169, 68, 68, 0.08);
+        color: #7a2e2e;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <input
+            id="searchInput"
+            class="search-input"
+            type="text"
+            placeholder="Search this agreement"
+          />
+
+          <div class="toggle" aria-label="Highlight mode">
+            <button
+              id="modePreciseBtn"
+              class="toggle-btn active"
+              type="button"
+              aria-pressed="true"
+            >
+              Precise
+            </button>
+            <button
+              id="modeContextBtn"
+              class="toggle-btn"
+              type="button"
+              aria-pressed="false"
+            >
+              Context
+            </button>
+          </div>
+
+          <button id="prevBtn" class="btn" type="button">Prev</button>
+          <button id="nextBtn" class="btn" type="button">Next</button>
+          <button id="clearBtn" class="btn" type="button">Clear</button>
+        </div>
+
+        <div id="status" class="status">Loading agreement…</div>
+      </div>
+
+      <div id="viewerContainer">
+        <div id="loading" class="loading">Loading PDF…</div>
+        <div id="error" class="error"></div>
+        <div id="pages"></div>
+      </div>
+    </div>
+
+    <script src="./build/pdf.js"></script>
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const fileUrl = params.get("file") || "";
+        const initialSearch = params.get("search") || "";
+
+        const searchInput = document.getElementById("searchInput");
+        const prevBtn = document.getElementById("prevBtn");
+        const nextBtn = document.getElementById("nextBtn");
+        const clearBtn = document.getElementById("clearBtn");
+        const modePreciseBtn = document.getElementById("modePreciseBtn");
+        const modeContextBtn = document.getElementById("modeContextBtn");
+        const statusEl = document.getElementById("status");
+        const loadingEl = document.getElementById("loading");
+        const errorEl = document.getElementById("error");
+        const pagesEl = document.getElementById("pages");
+
+        let pageModels = [];
+        let matches = [];
+        let currentMatchIndex = -1;
+        let highlightMode = "precise";
+
+        function setStatus(message) {
+          statusEl.textContent = message;
+        }
+
+        function showError(message) {
+          errorEl.textContent = message;
+          errorEl.style.display = "block";
+          loadingEl.style.display = "none";
+          setStatus("Unable to load agreement");
+        }
+
+        function hideError() {
+          errorEl.textContent = "";
+          errorEl.style.display = "none";
+        }
+
+        function normalizeText(value) {
+          return (value || "").replace(/\s+/g, " ").trim();
+        }
+
+        function collapseWhitespacePreserveLength(value) {
+          return (value || "").replace(/\s/g, " ");
+        }
+
+        function escapeRegex(value) {
+          return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        }
+
+        function buildMatcher(query) {
+          const normalizedQuery = normalizeText(query);
+          if (!normalizedQuery) return null;
+
+          const isSingleWord = !/\s/.test(normalizedQuery);
+          const source = isSingleWord
+            ? `\\b${escapeRegex(normalizedQuery)}\\b`
+            : escapeRegex(normalizedQuery).replace(/\\ /g, "\\s+");
+
+          return {
+            normalizedQuery,
+            regex: new RegExp(source, "ig"),
+          };
+        }
+
+        function updateModeButtons() {
+          const preciseActive = highlightMode === "precise";
+          modePreciseBtn.classList.toggle("active", preciseActive);
+          modeContextBtn.classList.toggle("active", !preciseActive);
+          modePreciseBtn.setAttribute("aria-pressed", preciseActive ? "true" : "false");
+          modeContextBtn.setAttribute("aria-pressed", !preciseActive ? "true" : "false");
+        }
+
+        function restoreOriginalSpanText() {
+          for (const page of pageModels) {
+            for (const spanModel of page.spans) {
+              spanModel.span.textContent = spanModel.originalText;
+              spanModel.span.classList.remove("context-match", "current-match");
+            }
+          }
+        }
+
+        function clearMatchMarkup() {
+          restoreOriginalSpanText();
+          matches = [];
+          currentMatchIndex = -1;
+        }
+
+        function buildPageModelsFromRenderedSpans(pageNumber, spans) {
+          const spanModels = [];
+          let pageText = "";
+          let cursor = 0;
+
+          for (const span of spans) {
+            const originalText = span.textContent || "";
+            if (!originalText) continue;
+
+            const searchableText = collapseWhitespacePreserveLength(originalText);
+            if (!searchableText.trim()) continue;
+
+            const start = cursor;
+            const end = start + searchableText.length;
+
+            spanModels.push({
+              pageNumber,
+              span,
+              originalText,
+              searchableText,
+              start,
+              end,
+            });
+
+            pageText += searchableText;
+            cursor = end;
+          }
+
+          return {
+            pageNumber,
+            spans: spanModels,
+            text: pageText,
+          };
+        }
+
+        function findPageMatches(page, matcher) {
+          const found = [];
+          const regex = new RegExp(matcher.regex.source, matcher.regex.flags);
+          let match;
+
+          while ((match = regex.exec(page.text)) !== null) {
+            const start = match.index;
+            const text = match[0];
+            const end = start + text.length;
+
+            found.push({
+              pageNumber: page.pageNumber,
+              start,
+              end,
+              text,
+            });
+
+            if (text.length === 0) {
+              regex.lastIndex += 1;
+            }
+          }
+
+          return found;
+        }
+
+        function getSpansForMatch(page, match) {
+          return page.spans.filter(
+            (spanModel) => spanModel.end > match.start && spanModel.start < match.end
+          );
+        }
+
+        function applyPreciseHighlight(page, match) {
+          const overlappingSpans = getSpansForMatch(page, match);
+          const createdNodes = [];
+
+          for (const spanModel of overlappingSpans) {
+            const localStart = Math.max(0, match.start - spanModel.start);
+            const localEnd = Math.min(
+              spanModel.searchableText.length,
+              match.end - spanModel.start
+            );
+
+            if (localStart >= localEnd) continue;
+
+            const rawText = spanModel.originalText;
+            const before = rawText.slice(0, localStart);
+            const middle = rawText.slice(localStart, localEnd);
+            const after = rawText.slice(localEnd);
+
+            const fragments = [];
+            if (before) fragments.push(document.createTextNode(before));
+
+            const mark = document.createElement("span");
+            mark.className = "match-fragment";
+            mark.textContent = middle;
+            fragments.push(mark);
+            createdNodes.push(mark);
+
+            if (after) fragments.push(document.createTextNode(after));
+
+            spanModel.span.replaceChildren(...fragments);
+          }
+
+          if (createdNodes.length > 0) {
+            matches.push({
+              pageNumber: match.pageNumber,
+              start: match.start,
+              end: match.end,
+              text: match.text,
+              nodes: createdNodes,
+            });
+          }
+        }
+
+        function applyContextHighlight(page, match) {
+          const overlappingSpans = getSpansForMatch(page, match);
+          const createdNodes = [];
+
+          for (const spanModel of overlappingSpans) {
+            spanModel.span.classList.add("context-match");
+            createdNodes.push(spanModel.span);
+          }
+
+          if (createdNodes.length > 0) {
+            matches.push({
+              pageNumber: match.pageNumber,
+              start: match.start,
+              end: match.end,
+              text: match.text,
+              nodes: createdNodes,
+            });
+          }
+        }
+
+        function rebuildMatches(preserveTarget) {
+          const matcher = buildMatcher(searchInput.value);
+
+          clearMatchMarkup();
+
+          if (!matcher) {
+            setStatus("No active search");
+            return;
+          }
+
+          const logicalMatches = [];
+          for (const page of pageModels) {
+            logicalMatches.push(...findPageMatches(page, matcher));
+          }
+
+          if (logicalMatches.length === 0) {
+            setStatus(`No matches for "${matcher.normalizedQuery}"`);
+            return;
+          }
+
+          for (const logicalMatch of logicalMatches) {
+            const page = pageModels.find((p) => p.pageNumber === logicalMatch.pageNumber);
+            if (!page) continue;
+
+            if (highlightMode === "precise") {
+              applyPreciseHighlight(page, logicalMatch);
+            } else {
+              applyContextHighlight(page, logicalMatch);
+            }
+          }
+
+          if (matches.length === 0) {
+            setStatus(`No matches for "${matcher.normalizedQuery}"`);
+            return;
+          }
+
+          let targetIndex = 0;
+
+          if (preserveTarget) {
+            const foundIndex = matches.findIndex(
+              (m) =>
+                m.pageNumber === preserveTarget.pageNumber &&
+                m.start === preserveTarget.start &&
+                m.end === preserveTarget.end
+            );
+            if (foundIndex >= 0) {
+              targetIndex = foundIndex;
+            }
+          }
+
+          jumpToMatch(targetIndex);
+        }
+
+        function jumpToMatch(index) {
+          if (!matches.length) return;
+
+          for (const match of matches) {
+            for (const node of match.nodes) {
+              node.classList.remove("current-match");
+            }
+          }
+
+          currentMatchIndex =
+            ((index % matches.length) + matches.length) % matches.length;
+
+          const current = matches[currentMatchIndex];
+          for (const node of current.nodes) {
+            node.classList.add("current-match");
+          }
+
+          const scrollTarget = current.nodes[0];
+          if (scrollTarget) {
+            scrollTarget.scrollIntoView({
+              behavior: "smooth",
+              block: "center",
+              inline: "nearest",
+            });
+          }
+
+          const query = normalizeText(searchInput.value);
+          const modeLabel = highlightMode === "precise" ? "Precise" : "Context";
+          setStatus(
+            `${currentMatchIndex + 1} of ${matches.length} matches for "${query}" (${modeLabel})`
+          );
+        }
+
+        function goNext() {
+          if (!matches.length) return;
+          jumpToMatch(currentMatchIndex + 1);
+        }
+
+        function goPrev() {
+          if (!matches.length) return;
+          jumpToMatch(currentMatchIndex - 1);
+        }
+
+        function setHighlightMode(mode) {
+          if (mode !== "precise" && mode !== "context") return;
+          if (highlightMode === mode) return;
+
+          const currentLogicalMatch =
+            currentMatchIndex >= 0 && matches[currentMatchIndex]
+              ? {
+                  pageNumber: matches[currentMatchIndex].pageNumber,
+                  start: matches[currentMatchIndex].start,
+                  end: matches[currentMatchIndex].end,
+                }
+              : null;
+
+          highlightMode = mode;
+          updateModeButtons();
+
+          if (searchInput.value.trim()) {
+            rebuildMatches(currentLogicalMatch);
+          }
+        }
+
+        async function renderPage(pdf, pageNumber) {
+          const page = await pdf.getPage(pageNumber);
+          const scale = 1.35;
+          const viewport = page.getViewport({ scale });
+
+          const pageWrap = document.createElement("div");
+          pageWrap.className = "pageWrap";
+          pageWrap.style.width = `${viewport.width}px`;
+          pageWrap.style.height = `${viewport.height}px`;
+
+          const canvas = document.createElement("canvas");
+          canvas.className = "pageCanvas";
+          const context = canvas.getContext("2d");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
+
+          const textLayer = document.createElement("div");
+          textLayer.className = "textLayer";
+          textLayer.style.width = `${viewport.width}px`;
+          textLayer.style.height = `${viewport.height}px`;
+
+          pageWrap.appendChild(canvas);
+          pageWrap.appendChild(textLayer);
+          pagesEl.appendChild(pageWrap);
+
+          await page.render({
+            canvasContext: context,
+            viewport,
+          }).promise;
+
+          const textContent = await page.getTextContent();
+
+          await pdfjsLib.renderTextLayer({
+            textContentSource: textContent,
+            container: textLayer,
+            viewport,
+          }).promise;
+
+          const spans = Array.from(textLayer.querySelectorAll("span"));
+          pageModels.push(buildPageModelsFromRenderedSpans(pageNumber, spans));
+        }
+
+        async function loadPdf() {
+          if (!fileUrl) {
+            showError("Missing file parameter.");
+            return;
+          }
+
+          if (!window.pdfjsLib) {
+            showError("PDF.js failed to load.");
+            return;
+          }
+
+          try {
+            hideError();
+            setStatus("Fetching agreement PDF…");
+            loadingEl.textContent = "Fetching PDF…";
+
+            const response = await fetch(fileUrl, {
+              method: "GET",
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+
+            if (!response.ok) {
+              throw new Error(`File request failed (${response.status})`);
+            }
+
+            const buffer = await response.arrayBuffer();
+
+            if (!buffer || buffer.byteLength === 0) {
+              throw new Error("The PDF file was empty.");
+            }
+
+            setStatus("Rendering agreement…");
+            loadingEl.textContent = "Rendering PDF…";
+
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "./build/pdf.worker.js";
+
+            const loadingTask = pdfjsLib.getDocument({
+              data: buffer,
+              disableRange: true,
+              disableStream: true,
+              disableAutoFetch: true,
+            });
+
+            const pdf = await loadingTask.promise;
+
+            pageModels = [];
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+              await renderPage(pdf, pageNumber);
+            }
+
+            loadingEl.style.display = "none";
+            setStatus(
+              `Agreement loaded (${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"})`
+            );
+
+            updateModeButtons();
+
+            if (initialSearch) {
+              searchInput.value = initialSearch;
+              window.setTimeout(() => {
+                rebuildMatches(null);
+              }, 250);
+            }
+          } catch (error) {
+            showError(
+              error && error.message
+                ? error.message
+                : "Failed to load the PDF document."
+            );
+          }
+        }
+
+        prevBtn.addEventListener("click", goPrev);
+        nextBtn.addEventListener("click", goNext);
+
+        clearBtn.addEventListener("click", function () {
+          searchInput.value = "";
+          clearMatchMarkup();
+          setStatus("Search cleared");
+        });
+
+        modePreciseBtn.addEventListener("click", function () {
+          setHighlightMode("precise");
+        });
+
+        modeContextBtn.addEventListener("click", function () {
+          setHighlightMode("context");
+        });
+
+        searchInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            rebuildMatches(null);
+          }
+        });
+
+        updateModeButtons();
+        loadPdf();
+      })();
+    </script>
+  </body>
+</html>
