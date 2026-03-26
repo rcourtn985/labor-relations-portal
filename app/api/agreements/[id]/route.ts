@@ -12,6 +12,90 @@ type RouteContext = {
 const SHARED_CBAS_KB_ID = "cbas_shared";
 const DEFAULT_OWNER_USER_ID = "system";
 
+export async function GET(_req: Request, context: RouteContext) {
+  try {
+    const { id } = await context.params;
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing agreement id." }, { status: 400 });
+    }
+
+    const agreement = await prisma.document.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        filename: true,
+        createdAt: true,
+        chapter: true,
+        localUnion: true,
+        cbaType: true,
+        state: true,
+        sharedToCbas: true,
+        storageProvider: true,
+        storageKey: true,
+        mimeType: true,
+        fileSizeBytes: true,
+        sha256: true,
+        kb: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        textContent: {
+          select: {
+            extractionState: true,
+            extractedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!agreement) {
+      return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
+    }
+
+    const hasStoredOriginal =
+      agreement.storageProvider === "local" && Boolean(agreement.storageKey);
+
+    return NextResponse.json({
+      id: agreement.id,
+      agreementName: agreement.kb?.name ?? "(untitled agreement)",
+      collectionId: agreement.kb?.id ?? "",
+      filename: agreement.filename ?? "",
+      uploadedAt: Math.floor(agreement.createdAt.getTime() / 1000),
+      chapter: agreement.chapter ?? "",
+      localUnion: agreement.localUnion ?? "",
+      agreementType: agreement.cbaType ?? "",
+      states: agreement.state ?? "",
+      sharedToCbas: Boolean(agreement.sharedToCbas),
+      storageProvider: agreement.storageProvider ?? null,
+      storageKey: agreement.storageKey ?? null,
+      mimeType: agreement.mimeType ?? null,
+      fileSizeBytes: agreement.fileSizeBytes ?? null,
+      sha256: agreement.sha256 ?? null,
+      extractionState: agreement.textContent?.extractionState ?? "missing",
+      extractedAt: agreement.textContent?.extractedAt
+        ? Math.floor(agreement.textContent.extractedAt.getTime() / 1000)
+        : null,
+      hasStoredOriginal,
+      fileUrl: hasStoredOriginal
+        ? `/api/agreements/${encodeURIComponent(agreement.id)}/file`
+        : null,
+      canPreviewInline:
+        hasStoredOriginal &&
+        Boolean(agreement.mimeType) &&
+        (
+          agreement.mimeType === "application/pdf" ||
+          agreement.mimeType?.startsWith("text/")
+        ),
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 export async function PATCH(req: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
@@ -47,7 +131,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
     }
 
-    // Update the selected agreement row
     await prisma.document.update({
       where: { id },
       data: {
@@ -59,8 +142,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       },
     });
 
-    // Also update mirrored/shared copies that represent the same uploaded file.
-    // For now, filename is the safest practical sync key available in the current model.
     if (existing.filename) {
       await prisma.document.updateMany({
         where: {
@@ -80,7 +161,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       });
     }
 
-    // Ensure shared/national mirror row exists or is removed based on the flag.
     if (existing.isCba && existing.filename) {
       const sharedKb = await prisma.knowledgeBase.findUnique({
         where: { id: SHARED_CBAS_KB_ID },
@@ -141,7 +221,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
     }
 
-    // Update the visible agreement name on the current agreement's container
     if (agreementName) {
       await prisma.knowledgeBase.update({
         where: { id: existing.kbId },
@@ -191,8 +270,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         sharedToCbas: Boolean(doc.sharedToCbas),
       })),
     });
-  } catch (e: any) {
-    const message = e?.message ?? "Server error";
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

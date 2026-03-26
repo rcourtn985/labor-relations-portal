@@ -5,11 +5,7 @@ import AgreementDatabaseCard from "./AgreementDatabaseCard";
 import ManageAgreementsHero from "./ManageAgreementsHero";
 import UploadAgreementModal from "./UploadAgreementModal";
 import { manageAgreementsStyles as styles } from "./styles";
-import {
-  AgreementRow,
-  KBFilesResponse,
-  KBIndexResponse,
-} from "./types";
+import { AgreementRow, KBFilesResponse, KBIndexResponse } from "./types";
 
 type FilterOption = {
   value: string;
@@ -27,6 +23,29 @@ type SearchResultRow = {
   agreementType: string;
   states: string;
   sharedToCbas: boolean;
+};
+
+type AgreementPreviewResponse = {
+  id: string;
+  agreementName: string;
+  collectionId: string;
+  filename: string;
+  uploadedAt: number;
+  chapter: string;
+  localUnion: string;
+  agreementType: string;
+  states: string;
+  sharedToCbas: boolean;
+  storageProvider: string | null;
+  storageKey: string | null;
+  mimeType: string | null;
+  fileSizeBytes: number | null;
+  sha256: string | null;
+  extractionState: string;
+  extractedAt: number | null;
+  hasStoredOriginal: boolean;
+  fileUrl: string | null;
+  canPreviewInline: boolean;
 };
 
 function normalizeValue(value: string | null | undefined) {
@@ -93,10 +112,13 @@ export default function ManageAgreementsPageClient() {
 
   const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
   const [selectedLocalUnions, setSelectedLocalUnions] = useState<string[]>([]);
-  const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>([]);
+  const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>(
+    []
+  );
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
-  const [nationalDatabaseFilter, setNationalDatabaseFilter] =
-    useState<"all" | "shared">("all");
+  const [nationalDatabaseFilter, setNationalDatabaseFilter] = useState<
+    "all" | "shared"
+  >("all");
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
@@ -126,6 +148,12 @@ export default function ManageAgreementsPageClient() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
+
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewData, setPreviewData] =
+    useState<AgreementPreviewResponse | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -200,7 +228,11 @@ export default function ManageAgreementsPageClient() {
 
     if (trimmedAgreementName) return trimmedAgreementName;
 
-    const parts = [trimmedChapter, trimmedLocalUnion, trimmedAgreementType].filter(Boolean);
+    const parts = [
+      trimmedChapter,
+      trimmedLocalUnion,
+      trimmedAgreementType,
+    ].filter(Boolean);
     if (parts.length > 0) return parts.join(" - ");
 
     return "Agreement Upload";
@@ -385,10 +417,39 @@ export default function ManageAgreementsPageClient() {
     }
   }
 
-  function openUploadedFile(_row: AgreementRow) {
-    setError(
-      "Opening the original file is not available yet. Original file storage is now in place, so the next step will be wiring this action to the stored file."
-    );
+  function closePreviewPanel() {
+    setIsPreviewOpen(false);
+    setPreviewLoading(false);
+    setPreviewError(null);
+    setPreviewData(null);
+  }
+
+  async function openUploadedFile(row: AgreementRow) {
+    setError(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    setPreviewData(null);
+    setIsPreviewOpen(true);
+
+    try {
+      const res = await fetch(`/api/agreements/${encodeURIComponent(row.id)}`);
+      const data = (await res.json()) as
+        | AgreementPreviewResponse
+        | { error?: string };
+
+      if (!res.ok) {
+        throw new Error(
+          ("error" in data && data.error) ||
+            "Failed to load agreement preview."
+        );
+      }
+
+      setPreviewData(data as AgreementPreviewResponse);
+    } catch (e: any) {
+      setPreviewError(e?.message ?? "Failed to load agreement preview.");
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   async function runContentSearch(query: string) {
@@ -559,6 +620,8 @@ export default function ManageAgreementsPageClient() {
     nationalDatabaseFilter,
   ]);
 
+  const showPreviewPane = isPreviewOpen;
+
   return (
     <div style={styles.page}>
       <ManageAgreementsHero onOpenUploadModal={openUploadModal} />
@@ -577,39 +640,265 @@ export default function ManageAgreementsPageClient() {
         </div>
       )}
 
-      <AgreementDatabaseCard
-        filesLoading={filesLoading || loadingCollections}
-        searchLoading={searchLoading}
-        searchError={searchError}
-        agreementRows={allAgreementRows}
-        filteredAgreementRows={filteredAgreementRows}
-        agreementNameQuery={agreementNameQuery}
-        contentSearchQuery={contentSearchQuery}
-        chapterOptions={chapterOptions}
-        localUnionOptions={localUnionOptions}
-        agreementTypeOptions={agreementTypeOptions}
-        stateOptions={stateOptions}
-        selectedChapters={selectedChapters}
-        selectedLocalUnions={selectedLocalUnions}
-        selectedAgreementTypes={selectedAgreementTypes}
-        selectedStates={selectedStates}
-        nationalDatabaseFilter={nationalDatabaseFilter}
-        onAgreementNameQueryChange={setAgreementNameQuery}
-        onContentSearchQueryChange={setContentSearchQuery}
-        onSelectedChaptersChange={setSelectedChapters}
-        onSelectedLocalUnionsChange={setSelectedLocalUnions}
-        onSelectedAgreementTypesChange={setSelectedAgreementTypes}
-        onSelectedStatesChange={setSelectedStates}
-        onNationalDatabaseFilterChange={setNationalDatabaseFilter}
-        onClearFilters={clearFilters}
-        onRefreshAgreements={() =>
-          loadAllAgreements().catch(() =>
-            setError("Failed to refresh agreements.")
-          )
-        }
-        onOpenUploadedFile={openUploadedFile}
-        onOpenEditModal={openEditModal}
-      />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: showPreviewPane
+            ? "minmax(0, 0.85fr) minmax(620px, 1.25fr)"
+            : "minmax(0, 1fr)",
+          gap: 18,
+          alignItems: "start",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <AgreementDatabaseCard
+            filesLoading={filesLoading || loadingCollections}
+            searchLoading={searchLoading}
+            searchError={searchError}
+            agreementRows={allAgreementRows}
+            filteredAgreementRows={filteredAgreementRows}
+            agreementNameQuery={agreementNameQuery}
+            contentSearchQuery={contentSearchQuery}
+            chapterOptions={chapterOptions}
+            localUnionOptions={localUnionOptions}
+            agreementTypeOptions={agreementTypeOptions}
+            stateOptions={stateOptions}
+            selectedChapters={selectedChapters}
+            selectedLocalUnions={selectedLocalUnions}
+            selectedAgreementTypes={selectedAgreementTypes}
+            selectedStates={selectedStates}
+            nationalDatabaseFilter={nationalDatabaseFilter}
+            onAgreementNameQueryChange={setAgreementNameQuery}
+            onContentSearchQueryChange={setContentSearchQuery}
+            onSelectedChaptersChange={setSelectedChapters}
+            onSelectedLocalUnionsChange={setSelectedLocalUnions}
+            onSelectedAgreementTypesChange={setSelectedAgreementTypes}
+            onSelectedStatesChange={setSelectedStates}
+            onNationalDatabaseFilterChange={setNationalDatabaseFilter}
+            onClearFilters={clearFilters}
+            onRefreshAgreements={() =>
+              loadAllAgreements().catch(() =>
+                setError("Failed to refresh agreements.")
+              )
+            }
+            onOpenUploadedFile={openUploadedFile}
+            onOpenEditModal={openEditModal}
+          />
+        </div>
+
+        {showPreviewPane && (
+          <div
+            style={{
+              minWidth: 0,
+              position: "sticky",
+              top: 16,
+              alignSelf: "start",
+            }}
+          >
+            <div
+              style={{
+                borderRadius: 20,
+                border: "1px solid var(--border)",
+                background: "var(--panel)",
+                boxShadow: "var(--shadow-soft)",
+                overflow: "hidden",
+                display: "grid",
+                gridTemplateRows: "auto minmax(78vh, calc(100vh - 180px))",
+              }}
+            >
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderBottom: "1px solid var(--border)",
+                  background:
+                    "linear-gradient(180deg, rgba(148,163,184,0.06), rgba(148,163,184,0.02))",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    minWidth: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 800,
+                      color: "var(--foreground)",
+                      lineHeight: 1.2,
+                      minWidth: 0,
+                      maxWidth: "100%",
+                    }}
+                    title={previewData?.agreementName || ""}
+                  >
+                    {previewData?.agreementName || "Loading agreement..."}
+                  </div>
+
+                  {previewData?.filename && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        minWidth: 0,
+                        maxWidth: "100%",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                      title={previewData.filename}
+                    >
+                      {previewData.filename}
+                    </div>
+                  )}
+
+                  {contentSearchQuery.trim() && (
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        background: "rgba(37, 99, 235, 0.10)",
+                        border: "1px solid rgba(37, 99, 235, 0.16)",
+                        color: "var(--muted-strong)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        maxWidth: "100%",
+                      }}
+                      title={contentSearchQuery.trim()}
+                    >
+                      Search: “{contentSearchQuery.trim()}”
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    justifyContent: "flex-end",
+                    flexShrink: 0,
+                  }}
+                >
+                  {previewData?.fileUrl && (
+                    <>
+                      <a
+                        href={previewData.fileUrl}
+                        download={previewData.filename || undefined}
+                        style={styles.primaryBtn}
+                      >
+                        Download
+                      </a>
+
+                      <a
+                        href={previewData.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={styles.subtleBtn}
+                      >
+                        Open in New Tab
+                      </a>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={closePreviewPanel}
+                    style={styles.subtleBtn}
+                  >
+                    Close Preview
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  minHeight: 0,
+                  background: "#fff",
+                  display: "grid",
+                }}
+              >
+                {previewLoading && (
+                  <div
+                    style={{
+                      padding: 18,
+                      color: "var(--muted-strong)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Loading agreement preview…
+                  </div>
+                )}
+
+                {previewError && (
+                  <div style={{ padding: 18 }}>
+                    <div style={styles.errorBox}>
+                      <b>Preview error:</b> {previewError}
+                    </div>
+                  </div>
+                )}
+
+                {!previewLoading && !previewError && previewData?.fileUrl ? (
+                  previewData.canPreviewInline ? (
+                    <iframe
+                      title={previewData.filename || "Agreement preview"}
+                      src={previewData.fileUrl}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        border: "none",
+                        background: "#fff",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        padding: 24,
+                        display: "grid",
+                        gap: 12,
+                        alignContent: "start",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontWeight: 800,
+                          fontSize: 18,
+                          color: "var(--foreground)",
+                        }}
+                      >
+                        Inline preview is not available for this file type.
+                      </div>
+
+                      <div style={{ color: "var(--muted)" }}>
+                        Use the buttons above to download the agreement or open
+                        it in a new tab.
+                      </div>
+                    </div>
+                  )
+                ) : !previewLoading && !previewError ? (
+                  <div
+                    style={{
+                      padding: 24,
+                      color: "var(--muted)",
+                    }}
+                  >
+                    No preview is available for this agreement.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       <UploadAgreementModal
         isOpen={isUploadModalOpen}
@@ -802,7 +1091,9 @@ export default function ManageAgreementsPageClient() {
                       gap: 12,
                     }}
                   >
-                    <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
+                    <div
+                      style={{ color: "var(--muted-strong)", fontWeight: 700 }}
+                    >
                       {editStatus}
                     </div>
                     <div
