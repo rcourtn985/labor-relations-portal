@@ -51,6 +51,7 @@ prisma/dev.db-journal
 tmp_uploads/
 kb_user_uploads/
 kb_cbas_shared/
+storage/
 
 # generated prisma client (recommended not to commit)
 lib/generated/prisma/
