@@ -1,5 +1,5 @@
-import HomePageClient from "@/components/home/HomePageClient";
+import ManageAgreementsPageClient from "@/components/manage-agreements/ManageAgreementsPageClient";
 
 export default function HomePage() {
-  return <HomePageClient />;
+  return <ManageAgreementsPageClient />;
 }

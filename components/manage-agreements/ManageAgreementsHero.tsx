@@ -31,11 +31,11 @@ export default function ManageAgreementsHero({
               color: "#ffffff",
             }}
           >
-            Manage Agreements
+            Agreement Database
           </h1>
           <div style={styles.heroSubtext}>
-            Upload, review, and update collective bargaining agreements in a
-            structured administrative workspace designed for agreement operations.
+            Upload, search, and manage collective bargaining agreements. Filter
+            by status, chapter, local union, state, and effective dates.
           </div>
         </div>
 
@@ -51,7 +51,7 @@ export default function ManageAgreementsHero({
             Upload Agreement
           </button>
 
-          <a href="/" style={{ textDecoration: "none" }}>
+          <a href="/chat" style={{ textDecoration: "none" }}>
             <button
               style={{
                 ...styles.btn,
@@ -61,7 +61,7 @@ export default function ManageAgreementsHero({
                 boxShadow: "none",
               }}
             >
-              ← Back to Chat
+              Chat
             </button>
           </a>
         </div>

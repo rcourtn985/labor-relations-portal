@@ -13,13 +13,15 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
+    "@react-pdf-viewer/core": "^3.12.0",
+    "@react-pdf-viewer/search": "^3.12.0",
     "dotenv": "^17.3.1",
     "formidable": "^3.5.4",
     "mammoth": "^1.12.0",
     "next": "16.1.6",
     "openai": "^6.25.0",
     "pdf-parse": "^2.4.5",
-    "pdfjs-dist": "^5.5.207",
+    "pdfjs-dist": "^3.4.120",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "scribe.js-ocr": "^0.10.1"

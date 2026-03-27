@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
+const SYSTEM_KB_IDS = new Set(["cbas_shared"]);
+
 function normalizeQuery(value: string | null): string {
   return (value ?? "").trim();
 }
@@ -31,15 +33,15 @@ export async function GET(request: NextRequest) {
     const q = normalizeQuery(request.nextUrl.searchParams.get("q"));
 
     if (!q) {
-      return NextResponse.json({
-        query: "",
-        results: [],
-      });
+      return NextResponse.json({ query: "", results: [] });
     }
 
     const documents = await prisma.document.findMany({
       where: {
         isCba: true,
+        NOT: {
+          kbId: { in: Array.from(SYSTEM_KB_IDS) },
+        },
         textContent: {
           is: {
             extractedText: {
@@ -57,6 +59,8 @@ export async function GET(request: NextRequest) {
         cbaType: true,
         state: true,
         sharedToCbas: true,
+        effectiveFrom: true,
+        effectiveTo: true,
         kb: {
           select: {
             id: true,
@@ -88,6 +92,8 @@ export async function GET(request: NextRequest) {
       agreementType: doc.cbaType ?? "",
       states: doc.state ?? "",
       sharedToCbas: doc.sharedToCbas,
+      effectiveFrom: doc.effectiveFrom ? doc.effectiveFrom.toISOString() : null,
+      effectiveTo: doc.effectiveTo ? doc.effectiveTo.toISOString() : null,
       snippet: createSnippet(doc.textContent?.extractedText ?? "", q),
       extractionState: doc.textContent?.extractionState ?? "missing",
       extractedAt: doc.textContent?.extractedAt

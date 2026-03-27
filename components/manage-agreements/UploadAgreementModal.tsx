@@ -6,12 +6,15 @@ import { manageAgreementsStyles as styles } from "./styles";
 type UploadAgreementModalProps = {
   isOpen: boolean;
   isUploading: boolean;
+  isExtracting: boolean;
   agreementName: string;
   agreementFiles: File[];
   chapter: string;
   localUnion: string;
   agreementType: string;
   states: string;
+  effectiveFrom: string;
+  effectiveTo: string;
   shareToNationalDatabase: boolean;
   dragActive: boolean;
   uploadStatus: string | null;
@@ -23,6 +26,8 @@ type UploadAgreementModalProps = {
   onLocalUnionChange: (value: string) => void;
   onAgreementTypeChange: (value: string) => void;
   onStatesChange: (value: string) => void;
+  onEffectiveFromChange: (value: string) => void;
+  onEffectiveToChange: (value: string) => void;
   onShareToNationalDatabaseChange: (checked: boolean) => void;
   onSetDragActive: (active: boolean) => void;
   onHandleDroppedFiles: (fileList: FileList | null) => void;
@@ -31,9 +36,7 @@ type UploadAgreementModalProps = {
 
 function getUploadProgressPercent(status: string | null): number {
   if (!status) return 0;
-
   const value = status.toLowerCase();
-
   if (value.includes("preparing")) return 8;
   if (value.includes("storing original")) return 18;
   if (value.includes("extracting text")) return 32;
@@ -41,20 +44,34 @@ function getUploadProgressPercent(status: string | null): number {
   if (value.includes("indexing")) return 72;
   if (value.includes("refreshing agreements")) return 90;
   if (value.includes("done")) return 100;
-
   if (value.includes("uploading")) return 12;
   return 0;
 }
 
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  marginBottom: 8,
+  fontWeight: 700,
+  fontSize: 13,
+  color: "var(--muted-strong)",
+};
+
+const requiredMark = (
+  <span style={{ color: "#c0392b", marginLeft: 2 }}>*</span>
+);
+
 export default function UploadAgreementModal({
   isOpen,
   isUploading,
+  isExtracting,
   agreementName,
   agreementFiles,
   chapter,
   localUnion,
   agreementType,
   states,
+  effectiveFrom,
+  effectiveTo,
   shareToNationalDatabase,
   dragActive,
   uploadStatus,
@@ -66,6 +83,8 @@ export default function UploadAgreementModal({
   onLocalUnionChange,
   onAgreementTypeChange,
   onStatesChange,
+  onEffectiveFromChange,
+  onEffectiveToChange,
   onShareToNationalDatabaseChange,
   onSetDragActive,
   onHandleDroppedFiles,
@@ -74,6 +93,7 @@ export default function UploadAgreementModal({
   if (!isOpen) return null;
 
   const progressPercent = getUploadProgressPercent(uploadStatus);
+  const busy = isUploading || isExtracting;
 
   const dropZoneStyle: React.CSSProperties = {
     marginTop: 14,
@@ -94,16 +114,17 @@ export default function UploadAgreementModal({
           <div>
             <div style={styles.sectionTitle}>Upload Agreement</div>
             <div style={styles.sectionSubtext}>
-              Add a new agreement file and record its agreement metadata.
+              All fields are required. Upload a single agreement file — metadata
+              will be extracted automatically.
             </div>
           </div>
 
           <button
             onClick={onClose}
-            disabled={isUploading}
+            disabled={busy}
             style={{
               ...styles.subtleBtn,
-              ...(isUploading ? styles.btnDisabled : null),
+              ...(busy ? styles.btnDisabled : null),
             }}
           >
             Close
@@ -136,16 +157,15 @@ export default function UploadAgreementModal({
             }}
           >
             <div style={{ fontWeight: 700, marginBottom: 6 }}>
-              Drag and drop agreement files here
+              Drag and drop an agreement file here {requiredMark}
             </div>
             <div style={{ color: "var(--muted)" }}>
-              Supports PDF, DOC, DOCX, and TXT
+              Supports PDF, DOC, DOCX, and TXT — one file at a time
             </div>
 
             <input
               ref={fileInputRef}
               type="file"
-              multiple
               hidden
               onChange={(e) => onHandleDroppedFiles(e.target.files)}
             />
@@ -155,6 +175,7 @@ export default function UploadAgreementModal({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 style={styles.btn}
+                disabled={busy}
               >
                 Browse Files
               </button>
@@ -169,33 +190,39 @@ export default function UploadAgreementModal({
                     color: "var(--muted-strong)",
                   }}
                 >
-                  Selected files
+                  Selected file
                 </div>
-
                 <div
                   style={{
-                    display: "grid",
-                    gap: 6,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: "#fff",
+                    border: "1px solid var(--border)",
+                    fontSize: 14,
                   }}
                 >
-                  {agreementFiles.map((file) => (
-                    <div
-                      key={`${file.name}-${file.size}`}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        background: "#fff",
-                        border: "1px solid var(--border)",
-                        fontSize: 14,
-                      }}
-                    >
-                      {file.name}
-                    </div>
-                  ))}
+                  {agreementFiles[0].name}
                 </div>
               </div>
             )}
           </div>
+
+          {isExtracting && (
+            <div
+              style={{
+                marginTop: 14,
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "rgba(37, 99, 235, 0.06)",
+                border: "1px solid rgba(37, 99, 235, 0.16)",
+                color: "var(--muted-strong)",
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              Analyzing agreement and extracting metadata…
+            </div>
+          )}
 
           <div
             style={{
@@ -203,100 +230,96 @@ export default function UploadAgreementModal({
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 12,
+              opacity: isExtracting ? 0.5 : 1,
+              transition: "opacity 0.2s ease",
             }}
           >
             <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 8,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "var(--muted-strong)",
-                }}
-              >
-                Agreement Name
+              <label style={labelStyle}>
+                Agreement Name {requiredMark}
               </label>
               <input
                 value={agreementName}
                 onChange={(e) => onAgreementNameChange(e.target.value)}
                 style={styles.input}
+                placeholder="e.g. IBEW Local 702 CBA"
+                disabled={isExtracting}
               />
             </div>
 
             <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 8,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "var(--muted-strong)",
-                }}
-              >
-                Chapter
+              <label style={labelStyle}>
+                Chapter {requiredMark}
               </label>
               <input
                 value={chapter}
                 onChange={(e) => onChapterChange(e.target.value)}
                 style={styles.input}
+                disabled={isExtracting}
               />
             </div>
 
             <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 8,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "var(--muted-strong)",
-                }}
-              >
-                Local Union(s)
+              <label style={labelStyle}>
+                Local Union(s) {requiredMark}
               </label>
               <input
                 value={localUnion}
                 onChange={(e) => onLocalUnionChange(e.target.value)}
                 style={styles.input}
+                placeholder="e.g. 702 or 702, 461"
+                disabled={isExtracting}
               />
             </div>
 
             <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 8,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "var(--muted-strong)",
-                }}
-              >
-                Agreement Type
+              <label style={labelStyle}>
+                Agreement Type {requiredMark}
               </label>
               <input
                 value={agreementType}
                 onChange={(e) => onAgreementTypeChange(e.target.value)}
                 style={styles.input}
+                disabled={isExtracting}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>
+                Effective From {requiredMark}
+              </label>
+              <input
+                type="date"
+                value={effectiveFrom}
+                onChange={(e) => onEffectiveFromChange(e.target.value)}
+                style={styles.input}
+                disabled={isExtracting}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>
+                Effective To {requiredMark}
+              </label>
+              <input
+                type="date"
+                value={effectiveTo}
+                onChange={(e) => onEffectiveToChange(e.target.value)}
+                style={styles.input}
+                disabled={isExtracting}
               />
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 8,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: "var(--muted-strong)",
-                }}
-              >
-                State(s)
+              <label style={labelStyle}>
+                State(s) {requiredMark}
               </label>
               <input
                 value={states}
                 onChange={(e) => onStatesChange(e.target.value)}
                 style={styles.input}
+                placeholder="e.g. LA or LA, MS"
+                disabled={isExtracting}
               />
             </div>
 
@@ -317,10 +340,10 @@ export default function UploadAgreementModal({
                   onChange={(e) =>
                     onShareToNationalDatabaseChange(e.target.checked)
                   }
+                  disabled={isExtracting}
                 />
                 Make available to National Database
               </label>
-
               <div
                 style={{
                   marginTop: 6,
@@ -329,8 +352,8 @@ export default function UploadAgreementModal({
                   lineHeight: 1.5,
                 }}
               >
-                If selected, this agreement can be searched by all authorized users
-                in the system. Otherwise, it will remain limited to its
+                If selected, this agreement can be searched by all authorized
+                users in the system. Otherwise, it will remain limited to its
                 chapter/private scope once access controls are wired in.
               </div>
             </div>
@@ -394,10 +417,10 @@ export default function UploadAgreementModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isUploading}
+            disabled={busy}
             style={{
               ...styles.btn,
-              ...(isUploading ? styles.btnDisabled : null),
+              ...(busy ? styles.btnDisabled : null),
             }}
           >
             Cancel
@@ -406,13 +429,13 @@ export default function UploadAgreementModal({
           <button
             type="button"
             onClick={onUpload}
-            disabled={isUploading}
+            disabled={busy}
             style={{
               ...styles.primaryBtn,
-              ...(isUploading ? styles.btnDisabled : null),
+              ...(busy ? styles.btnDisabled : null),
             }}
           >
-            {isUploading ? "Uploading…" : "Upload Agreement"}
+            {isUploading ? "Uploading…" : isExtracting ? "Analyzing…" : "Upload Agreement"}
           </button>
         </div>
       </div>

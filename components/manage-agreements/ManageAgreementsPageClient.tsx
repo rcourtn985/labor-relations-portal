@@ -8,23 +8,14 @@ import UploadAgreementModal from "./UploadAgreementModal";
 import { manageAgreementsStyles as styles } from "./styles";
 import { AgreementRow, KBFilesResponse, KBIndexResponse } from "./types";
 
-const AgreementPdfViewer = dynamic(
-  () => import("./AgreementPdfViewer"),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        style={{
-          padding: 18,
-          color: "var(--muted-strong)",
-          fontWeight: 700,
-        }}
-      >
-        Loading PDF viewer…
-      </div>
-    ),
-  }
-);
+const AgreementPdfViewer = dynamic(() => import("./AgreementPdfViewer"), {
+  ssr: false,
+  loading: () => (
+    <div style={{ padding: 18, color: "var(--muted-strong)", fontWeight: 700 }}>
+      Loading PDF viewer…
+    </div>
+  ),
+});
 
 type FilterOption = {
   value: string;
@@ -42,6 +33,8 @@ type SearchResultRow = {
   agreementType: string;
   states: string;
   sharedToCbas: boolean;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
 };
 
 type AgreementPreviewResponse = {
@@ -67,6 +60,16 @@ type AgreementPreviewResponse = {
   canPreviewInline: boolean;
 };
 
+type ExtractedMetadata = {
+  agreementName: string | null;
+  chapter: string | null;
+  localUnion: string | null;
+  agreementType: string | null;
+  states: string | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+};
+
 function normalizeValue(value: string | null | undefined) {
   return (value ?? "").trim();
 }
@@ -83,10 +86,7 @@ function toOptionArray(values: string[]): FilterOption[] {
     .map((value) => value.trim())
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b))
-    .map((value) => ({
-      value,
-      label: value,
-    }));
+    .map((value) => ({ value, label: value }));
 }
 
 function matchesSingle(value: string, selected: string[]) {
@@ -102,17 +102,26 @@ function matchesMultiValue(value: string, selected: string[]) {
 
 function getEditProgressPercent(status: string | null): number {
   if (!status) return 0;
-
   const value = status.toLowerCase();
-
   if (value.includes("saving changes")) return 25;
   if (value.includes("syncing shared copies")) return 60;
   if (value.includes("refreshing agreements")) return 85;
   if (value.includes("done") || value.includes("saved")) return 100;
-
   if (value.includes("saving")) return 35;
   return 0;
 }
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  marginBottom: 8,
+  fontWeight: 700,
+  fontSize: 13,
+  color: "var(--muted-strong)",
+};
+
+const requiredMark = (
+  <span style={{ color: "#c0392b", marginLeft: 2 }}>*</span>
+);
 
 export default function ManageAgreementsPageClient() {
   const [kbIndex, setKbIndex] = useState<KBIndexResponse | null>(null);
@@ -131,15 +140,13 @@ export default function ManageAgreementsPageClient() {
 
   const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
   const [selectedLocalUnions, setSelectedLocalUnions] = useState<string[]>([]);
-  const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>(
-    []
-  );
+  const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>([]);
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
-  const [nationalDatabaseFilter, setNationalDatabaseFilter] = useState<
-    "all" | "shared"
-  >("all");
+  const [nationalDatabaseFilter, setNationalDatabaseFilter] = useState<"all" | "shared">("all");
+  const [showExpired, setShowExpired] = useState(false);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
 
   const [agreementName, setAgreementName] = useState("");
   const [agreementFiles, setAgreementFiles] = useState<File[]>([]);
@@ -151,6 +158,8 @@ export default function ManageAgreementsPageClient() {
   const [localUnion, setLocalUnion] = useState("");
   const [agreementType, setAgreementType] = useState("");
   const [states, setStates] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [effectiveTo, setEffectiveTo] = useState("");
   const [shareToNationalDatabase, setShareToNationalDatabase] = useState(false);
 
   const [dragActive, setDragActive] = useState(false);
@@ -162,8 +171,9 @@ export default function ManageAgreementsPageClient() {
   const [editLocalUnion, setEditLocalUnion] = useState("");
   const [editAgreementType, setEditAgreementType] = useState("");
   const [editStates, setEditStates] = useState("");
-  const [editShareToNationalDatabase, setEditShareToNationalDatabase] =
-    useState(false);
+  const [editEffectiveFrom, setEditEffectiveFrom] = useState("");
+  const [editEffectiveTo, setEditEffectiveTo] = useState("");
+  const [editShareToNationalDatabase, setEditShareToNationalDatabase] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
@@ -171,8 +181,7 @@ export default function ManageAgreementsPageClient() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewData, setPreviewData] =
-    useState<AgreementPreviewResponse | null>(null);
+  const [previewData, setPreviewData] = useState<AgreementPreviewResponse | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -226,6 +235,8 @@ export default function ManageAgreementsPageClient() {
           fileId: file.file_id,
           fileUrl: file.fileUrl ?? null,
           sharedToCbas: Boolean(file.sharedToCbas),
+          effectiveFrom: file.effectiveFrom ?? null,
+          effectiveTo: file.effectiveTo ?? null,
         }));
       });
 
@@ -247,9 +258,7 @@ export default function ManageAgreementsPageClient() {
 
     if (trimmedAgreementName) return trimmedAgreementName;
 
-    const parts = [trimmedChapter, trimmedLocalUnion, trimmedAgreementType].filter(
-      Boolean
-    );
+    const parts = [trimmedChapter, trimmedLocalUnion, trimmedAgreementType].filter(Boolean);
     if (parts.length > 0) return parts.join(" - ");
 
     return "Agreement Upload";
@@ -262,10 +271,13 @@ export default function ManageAgreementsPageClient() {
     setLocalUnion("");
     setAgreementType("");
     setStates("");
+    setEffectiveFrom("");
+    setEffectiveTo("");
     setShareToNationalDatabase(false);
     setUploadError(null);
     setUploadStatus(null);
     setDragActive(false);
+    setIsExtracting(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -289,13 +301,44 @@ export default function ManageAgreementsPageClient() {
   }
 
   function closeUploadModal() {
-    if (isUploading) return;
+    if (isUploading || isExtracting) return;
     setIsUploadModalOpen(false);
   }
 
+  async function extractMetadata(file: File) {
+    setIsExtracting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch("/api/agreements/extract-metadata", {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) return;
+
+      const data = (await res.json()) as ExtractedMetadata;
+
+      if (data.agreementName) setAgreementName(data.agreementName);
+      if (data.chapter) setChapter(data.chapter);
+      if (data.localUnion) setLocalUnion(data.localUnion);
+      if (data.agreementType) setAgreementType(data.agreementType);
+      if (data.states) setStates(data.states);
+      if (data.effectiveFrom) setEffectiveFrom(data.effectiveFrom);
+      if (data.effectiveTo) setEffectiveTo(data.effectiveTo);
+    } catch {
+      // silent fail — user fills in manually
+    } finally {
+      setIsExtracting(false);
+    }
+  }
+
   function handleDroppedFiles(fileList: FileList | null) {
-    if (!fileList) return;
-    setAgreementFiles(Array.from(fileList));
+    if (!fileList || fileList.length === 0) return;
+    const file = fileList[0];
+    setAgreementFiles([file]);
+    extractMetadata(file);
   }
 
   async function uploadAgreement() {
@@ -303,7 +346,12 @@ export default function ManageAgreementsPageClient() {
     setUploadStatus(null);
 
     if (agreementFiles.length === 0) {
-      setUploadError("Please select at least one agreement file.");
+      setUploadError("Please select an agreement file.");
+      return;
+    }
+
+    if (!agreementName.trim()) {
+      setUploadError("Please enter an Agreement Name.");
       return;
     }
 
@@ -312,8 +360,33 @@ export default function ManageAgreementsPageClient() {
       return;
     }
 
+    if (!localUnion.trim()) {
+      setUploadError("Please enter a Local Union.");
+      return;
+    }
+
+    if (!agreementType.trim()) {
+      setUploadError("Please enter an Agreement Type.");
+      return;
+    }
+
     if (!states.trim()) {
       setUploadError("Please enter State(s), for example LA or LA, MS.");
+      return;
+    }
+
+    if (!effectiveFrom.trim()) {
+      setUploadError("Please enter an Effective From date.");
+      return;
+    }
+
+    if (!effectiveTo.trim()) {
+      setUploadError("Please enter an Effective To date.");
+      return;
+    }
+
+    if (effectiveTo < effectiveFrom) {
+      setUploadError("Effective To date must be on or after the Effective From date.");
       return;
     }
 
@@ -323,17 +396,15 @@ export default function ManageAgreementsPageClient() {
 
       const form = new FormData();
       form.append("name", buildCollectionName());
-
-      for (const file of agreementFiles) {
-        form.append("files", file);
-      }
-
+      form.append("files", agreementFiles[0]);
       form.append("isCba", "true");
       form.append("shareToCbas", shareToNationalDatabase ? "true" : "false");
       form.append("chapter", chapter.trim());
       form.append("localUnion", localUnion.trim());
       form.append("cbaType", agreementType.trim());
       form.append("state", states.trim());
+      form.append("effectiveFrom", effectiveFrom.trim());
+      form.append("effectiveTo", effectiveTo.trim());
 
       setUploadStatus("Uploading to OpenAI and processing agreement...");
 
@@ -369,6 +440,8 @@ export default function ManageAgreementsPageClient() {
     setEditLocalUnion(row.localUnion === "—" ? "" : row.localUnion);
     setEditAgreementType(row.agreementType === "—" ? "" : row.agreementType);
     setEditStates(row.states === "—" ? "" : row.states);
+    setEditEffectiveFrom(row.effectiveFrom ? row.effectiveFrom.slice(0, 10) : "");
+    setEditEffectiveTo(row.effectiveTo ? row.effectiveTo.slice(0, 10) : "");
     setEditShareToNationalDatabase(Boolean(row.sharedToCbas));
     setEditError(null);
     setEditStatus(null);
@@ -389,6 +462,46 @@ export default function ManageAgreementsPageClient() {
       return;
     }
 
+    if (!editAgreementName.trim()) {
+      setEditError("Please enter an Agreement Name.");
+      return;
+    }
+
+    if (!editChapter.trim()) {
+      setEditError("Please enter a Chapter.");
+      return;
+    }
+
+    if (!editLocalUnion.trim()) {
+      setEditError("Please enter a Local Union.");
+      return;
+    }
+
+    if (!editAgreementType.trim()) {
+      setEditError("Please enter an Agreement Type.");
+      return;
+    }
+
+    if (!editStates.trim()) {
+      setEditError("Please enter State(s), for example LA or LA, MS.");
+      return;
+    }
+
+    if (!editEffectiveFrom.trim()) {
+      setEditError("Please enter an Effective From date.");
+      return;
+    }
+
+    if (!editEffectiveTo.trim()) {
+      setEditError("Please enter an Effective To date.");
+      return;
+    }
+
+    if (editEffectiveTo < editEffectiveFrom) {
+      setEditError("Effective To date must be on or after the Effective From date.");
+      return;
+    }
+
     try {
       setIsSavingEdit(true);
       setEditStatus("Saving changes...");
@@ -397,9 +510,7 @@ export default function ManageAgreementsPageClient() {
         `/api/agreements/${encodeURIComponent(editingAgreementId)}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             agreementName: editAgreementName,
             chapter: editChapter,
@@ -407,6 +518,8 @@ export default function ManageAgreementsPageClient() {
             agreementType: editAgreementType,
             states: editStates,
             sharedToCbas: editShareToNationalDatabase,
+            effectiveFrom: editEffectiveFrom || null,
+            effectiveTo: editEffectiveTo || null,
           }),
         }
       );
@@ -450,14 +563,11 @@ export default function ManageAgreementsPageClient() {
 
     try {
       const res = await fetch(`/api/agreements/${encodeURIComponent(row.id)}`);
-      const data = (await res.json()) as
-        | AgreementPreviewResponse
-        | { error?: string };
+      const data = (await res.json()) as AgreementPreviewResponse | { error?: string };
 
       if (!res.ok) {
         throw new Error(
-          ("error" in data && data.error) ||
-            "Failed to load agreement preview."
+          ("error" in data && data.error) || "Failed to load agreement preview."
         );
       }
 
@@ -507,6 +617,8 @@ export default function ManageAgreementsPageClient() {
           fileId: "",
           fileUrl: null,
           sharedToCbas: Boolean(row.sharedToCbas),
+          effectiveFrom: row.effectiveFrom ?? null,
+          effectiveTo: row.effectiveTo ?? null,
         })
       );
 
@@ -600,7 +712,6 @@ export default function ManageAgreementsPageClient() {
     return baseRows.filter((row) => {
       const matchesName =
         !nameNeedle || row.agreementName.toLowerCase().includes(nameNeedle);
-
       const matchesChapterFilter = matchesSingle(row.chapter, selectedChapters);
       const matchesLocalUnionFilter = matchesMultiValue(
         row.localUnion === "—" ? "" : row.localUnion,
@@ -636,6 +747,24 @@ export default function ManageAgreementsPageClient() {
     selectedStates,
     nationalDatabaseFilter,
   ]);
+
+  const statusFilteredRows = useMemo(() => {
+    if (showExpired) return filteredAgreementRows;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    return filteredAgreementRows.filter((row) => {
+      if (!row.effectiveFrom && !row.effectiveTo) return false;
+
+      const fromStr = row.effectiveFrom?.slice(0, 10) ?? null;
+      const toStr = row.effectiveTo?.slice(0, 10) ?? null;
+
+      const afterStart = !fromStr || fromStr <= todayStr;
+      const beforeEnd = !toStr || toStr >= todayStr;
+
+      return afterStart && beforeEnd;
+    });
+  }, [filteredAgreementRows, showExpired]);
 
   const showPreviewPane = isPreviewOpen;
 
@@ -673,7 +802,7 @@ export default function ManageAgreementsPageClient() {
             searchLoading={searchLoading}
             searchError={searchError}
             agreementRows={allAgreementRows}
-            filteredAgreementRows={filteredAgreementRows}
+            filteredAgreementRows={statusFilteredRows}
             agreementNameQuery={agreementNameQuery}
             contentSearchQuery={contentSearchQuery}
             chapterOptions={chapterOptions}
@@ -685,6 +814,7 @@ export default function ManageAgreementsPageClient() {
             selectedAgreementTypes={selectedAgreementTypes}
             selectedStates={selectedStates}
             nationalDatabaseFilter={nationalDatabaseFilter}
+            showExpired={showExpired}
             onAgreementNameQueryChange={setAgreementNameQuery}
             onContentSearchQueryChange={setContentSearchQuery}
             onSelectedChaptersChange={setSelectedChapters}
@@ -692,6 +822,7 @@ export default function ManageAgreementsPageClient() {
             onSelectedAgreementTypesChange={setSelectedAgreementTypes}
             onSelectedStatesChange={setSelectedStates}
             onNationalDatabaseFilterChange={setNationalDatabaseFilter}
+            onShowExpiredChange={setShowExpired}
             onClearFilters={clearFilters}
             onRefreshAgreements={() =>
               loadAllAgreements().catch(() =>
@@ -791,7 +922,7 @@ export default function ManageAgreementsPageClient() {
                       }}
                       title={contentSearchQuery.trim()}
                     >
-                      Search: “{contentSearchQuery.trim()}”
+                      Search: "{contentSearchQuery.trim()}"
                     </div>
                   )}
                 </div>
@@ -901,7 +1032,6 @@ export default function ManageAgreementsPageClient() {
                       >
                         Inline preview is not available for this file type.
                       </div>
-
                       <div style={{ color: "var(--muted)" }}>
                         Use the buttons above to download the agreement or open
                         it in a new tab.
@@ -909,12 +1039,7 @@ export default function ManageAgreementsPageClient() {
                     </div>
                   )
                 ) : !previewLoading && !previewError ? (
-                  <div
-                    style={{
-                      padding: 24,
-                      color: "var(--muted)",
-                    }}
-                  >
+                  <div style={{ padding: 24, color: "var(--muted)" }}>
                     No preview is available for this agreement.
                   </div>
                 ) : null}
@@ -927,12 +1052,15 @@ export default function ManageAgreementsPageClient() {
       <UploadAgreementModal
         isOpen={isUploadModalOpen}
         isUploading={isUploading}
+        isExtracting={isExtracting}
         agreementName={agreementName}
         agreementFiles={agreementFiles}
         chapter={chapter}
         localUnion={localUnion}
         agreementType={agreementType}
         states={states}
+        effectiveFrom={effectiveFrom}
+        effectiveTo={effectiveTo}
         shareToNationalDatabase={shareToNationalDatabase}
         dragActive={dragActive}
         uploadStatus={uploadStatus}
@@ -944,6 +1072,8 @@ export default function ManageAgreementsPageClient() {
         onLocalUnionChange={setLocalUnion}
         onAgreementTypeChange={setAgreementType}
         onStatesChange={setStates}
+        onEffectiveFromChange={setEffectiveFrom}
+        onEffectiveToChange={setEffectiveTo}
         onShareToNationalDatabaseChange={setShareToNationalDatabase}
         onSetDragActive={setDragActive}
         onHandleDroppedFiles={handleDroppedFiles}
@@ -957,7 +1087,7 @@ export default function ManageAgreementsPageClient() {
               <div>
                 <div style={styles.sectionTitle}>Edit Agreement</div>
                 <div style={styles.sectionSubtext}>
-                  Update the stored metadata for this uploaded agreement.
+                  All fields are required. Update the stored metadata for this agreement.
                 </div>
               </div>
 
@@ -982,17 +1112,7 @@ export default function ManageAgreementsPageClient() {
                 }}
               >
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: 8,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "var(--muted-strong)",
-                    }}
-                  >
-                    Agreement Name
-                  </label>
+                  <label style={labelStyle}>Agreement Name {requiredMark}</label>
                   <input
                     type="text"
                     value={editAgreementName}
@@ -1002,17 +1122,7 @@ export default function ManageAgreementsPageClient() {
                 </div>
 
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: 8,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "var(--muted-strong)",
-                    }}
-                  >
-                    Chapter
-                  </label>
+                  <label style={labelStyle}>Chapter {requiredMark}</label>
                   <input
                     type="text"
                     value={editChapter}
@@ -1022,17 +1132,7 @@ export default function ManageAgreementsPageClient() {
                 </div>
 
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: 8,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "var(--muted-strong)",
-                    }}
-                  >
-                    Local Union(s)
-                  </label>
+                  <label style={labelStyle}>Local Union(s) {requiredMark}</label>
                   <input
                     type="text"
                     value={editLocalUnion}
@@ -1042,17 +1142,7 @@ export default function ManageAgreementsPageClient() {
                 </div>
 
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: 8,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "var(--muted-strong)",
-                    }}
-                  >
-                    Agreement Type
-                  </label>
+                  <label style={labelStyle}>Agreement Type {requiredMark}</label>
                   <input
                     type="text"
                     value={editAgreementType}
@@ -1061,23 +1151,34 @@ export default function ManageAgreementsPageClient() {
                   />
                 </div>
 
+                <div>
+                  <label style={labelStyle}>Effective From {requiredMark}</label>
+                  <input
+                    type="date"
+                    value={editEffectiveFrom}
+                    onChange={(e) => setEditEffectiveFrom(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Effective To {requiredMark}</label>
+                  <input
+                    type="date"
+                    value={editEffectiveTo}
+                    onChange={(e) => setEditEffectiveTo(e.target.value)}
+                    style={styles.input}
+                  />
+                </div>
+
                 <div style={{ gridColumn: "1 / -1" }}>
-                  <label
-                    style={{
-                      display: "block",
-                      marginBottom: 8,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "var(--muted-strong)",
-                    }}
-                  >
-                    State(s)
-                  </label>
+                  <label style={labelStyle}>State(s) {requiredMark}</label>
                   <input
                     type="text"
                     value={editStates}
                     onChange={(e) => setEditStates(e.target.value)}
                     style={styles.input}
+                    placeholder="e.g. LA or LA, MS"
                   />
                 </div>
 
@@ -1115,18 +1216,10 @@ export default function ManageAgreementsPageClient() {
                       gap: 12,
                     }}
                   >
-                    <div
-                      style={{ color: "var(--muted-strong)", fontWeight: 700 }}
-                    >
+                    <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
                       {editStatus}
                     </div>
-                    <div
-                      style={{
-                        color: "var(--muted)",
-                        fontSize: 13,
-                        fontWeight: 700,
-                      }}
-                    >
+                    <div style={{ color: "var(--muted)", fontSize: 13, fontWeight: 700 }}>
                       {getEditProgressPercent(editStatus)}%
                     </div>
                   </div>
@@ -1154,7 +1247,7 @@ export default function ManageAgreementsPageClient() {
               )}
 
               {editError && (
-                <div style={styles.errorBox}>
+                <div style={{ ...styles.errorBox, marginTop: 16 }}>
                   <b>Save error:</b> {editError}
                 </div>
               )}

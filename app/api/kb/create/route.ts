@@ -42,6 +42,12 @@ function getExtension(filename: string): string {
   return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
 }
 
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value || !value.trim()) return null;
+  const d = new Date(value.trim());
+  return isNaN(d.getTime()) ? null : d;
+}
+
 async function getVectorStoreAttachedFilenames(
   vectorStoreId: string
 ): Promise<Set<string>> {
@@ -52,7 +58,6 @@ async function getVectorStoreAttachedFilenames(
   for (const it of items) {
     const fileId = (it as { id?: string })?.id;
     if (!fileId) continue;
-
     try {
       const f = await openai.files.retrieve(fileId);
       const filename = (
@@ -60,7 +65,6 @@ async function getVectorStoreAttachedFilenames(
         (f as { filename?: string; name?: string })?.name ??
         ""
       ).trim();
-
       if (filename) names.add(filename);
     } catch {
       // best effort
@@ -107,6 +111,8 @@ export async function POST(req: Request) {
     const localUnion = getString(formData, "localUnion")?.trim() || null;
     const cbaType = getString(formData, "cbaType")?.trim() || null;
     const state = getString(formData, "state")?.trim() || null;
+    const effectiveFrom = parseDate(getString(formData, "effectiveFrom"));
+    const effectiveTo = parseDate(getString(formData, "effectiveTo"));
 
     const uploadedFiles = getFiles(formData, "files");
 
@@ -137,9 +143,7 @@ export async function POST(req: Request) {
       if (!ALLOWED_EXTS.has(ext)) {
         return NextResponse.json(
           {
-            error: `Unsupported file type: "${ext || "(none)"}". Allowed: ${Array.from(
-              ALLOWED_EXTS
-            ).join(", ")}`,
+            error: `Unsupported file type: "${ext || "(none)"}". Allowed: ${Array.from(ALLOWED_EXTS).join(", ")}`,
           },
           { status: 400 }
         );
@@ -213,6 +217,8 @@ export async function POST(req: Request) {
             localUnion,
             cbaType,
             state,
+            effectiveFrom,
+            effectiveTo,
             sharedToCbas: isCba && shareToCbas,
             storageProvider: d.storageProvider,
             storageKey: d.storageKey,
@@ -302,6 +308,8 @@ export async function POST(req: Request) {
               localUnion,
               cbaType,
               state,
+              effectiveFrom,
+              effectiveTo,
               sharedToCbas: true,
               storageProvider: d.storageProvider,
               storageKey: d.storageKey,

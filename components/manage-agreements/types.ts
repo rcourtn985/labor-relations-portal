@@ -26,6 +26,8 @@ export type KBFilesResponse = {
     states?: string | null;
     sharedToCbas?: boolean;
     fileUrl?: string | null;
+    effectiveFrom?: string | null;
+    effectiveTo?: string | null;
   }[];
 };
 
@@ -44,4 +46,6 @@ export type AgreementRow = {
   fileId: string;
   fileUrl: string | null;
   sharedToCbas: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
 };

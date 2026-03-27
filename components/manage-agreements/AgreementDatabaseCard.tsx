@@ -26,6 +26,7 @@ type AgreementDatabaseCardProps = {
   selectedAgreementTypes: string[];
   selectedStates: string[];
   nationalDatabaseFilter: "all" | "shared";
+  showExpired: boolean;
   onAgreementNameQueryChange: (value: string) => void;
   onContentSearchQueryChange: (value: string) => void;
   onSelectedChaptersChange: (value: string[]) => void;
@@ -33,11 +34,32 @@ type AgreementDatabaseCardProps = {
   onSelectedAgreementTypesChange: (value: string[]) => void;
   onSelectedStatesChange: (value: string[]) => void;
   onNationalDatabaseFilterChange: (value: "all" | "shared") => void;
+  onShowExpiredChange: (value: boolean) => void;
   onClearFilters: () => void;
   onRefreshAgreements: () => void;
   onOpenUploadedFile: (row: AgreementRow) => void;
   onOpenEditModal: (row: AgreementRow) => void;
 };
+
+type AgreementStatus = "active" | "expired" | "upcoming";
+
+function getAgreementStatus(row: AgreementRow): AgreementStatus | null {
+  if (!row.effectiveFrom && !row.effectiveTo) return null;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const fromStr = row.effectiveFrom?.slice(0, 10) ?? null;
+  const toStr = row.effectiveTo?.slice(0, 10) ?? null;
+
+  if (fromStr && fromStr > todayStr) return "upcoming";
+  if (toStr && toStr < todayStr) return "expired";
+  return "active";
+}
+
+function formatDateShort(isoString: string | null): string {
+  if (!isoString) return "—";
+  const [year, month, day] = isoString.slice(0, 10).split("-");
+  return `${month}/${day}/${year}`;
+}
 
 function nationalBadgeStyle(sharedToCbas: boolean) {
   return {
@@ -50,6 +72,37 @@ function nationalBadgeStyle(sharedToCbas: boolean) {
       : "1px solid rgba(99, 115, 129, 0.22)",
     color: sharedToCbas ? "#136a49" : "var(--muted-strong)",
   };
+}
+
+function statusBadgeStyle(status: AgreementStatus) {
+  if (status === "active") {
+    return {
+      ...styles.badge,
+      background: "rgba(24, 124, 84, 0.12)",
+      border: "1px solid rgba(24, 124, 84, 0.28)",
+      color: "#136a49",
+    };
+  }
+  if (status === "upcoming") {
+    return {
+      ...styles.badge,
+      background: "rgba(37, 99, 235, 0.10)",
+      border: "1px solid rgba(37, 99, 235, 0.20)",
+      color: "#1e40af",
+    };
+  }
+  return {
+    ...styles.badge,
+    background: "rgba(185, 28, 28, 0.10)",
+    border: "1px solid rgba(185, 28, 28, 0.20)",
+    color: "#991b1b",
+  };
+}
+
+function statusLabel(status: AgreementStatus): string {
+  if (status === "active") return "Active";
+  if (status === "upcoming") return "Upcoming";
+  return "Expired";
 }
 
 export default function AgreementDatabaseCard({
@@ -69,6 +122,7 @@ export default function AgreementDatabaseCard({
   selectedAgreementTypes,
   selectedStates,
   nationalDatabaseFilter,
+  showExpired,
   onAgreementNameQueryChange,
   onContentSearchQueryChange,
   onSelectedChaptersChange,
@@ -76,6 +130,7 @@ export default function AgreementDatabaseCard({
   onSelectedAgreementTypesChange,
   onSelectedStatesChange,
   onNationalDatabaseFilterChange,
+  onShowExpiredChange,
   onClearFilters,
   onRefreshAgreements,
   onOpenUploadedFile,
@@ -103,19 +158,39 @@ export default function AgreementDatabaseCard({
           <div>
             <div style={styles.sectionTitle}>Agreement Database</div>
             <div style={styles.sectionSubtext}>
-              Review uploaded agreements, filter the full agreement set, search agreement text, and update stored agreement metadata.
+              Review uploaded agreements, filter the full agreement set, search
+              agreement text, and update stored agreement metadata.
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={styles.toolbarChip}>All Agreements: {agreementRows.length}</span>
-            <span style={styles.toolbarChip}>Filtered: {filteredAgreementRows.length}</span>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <span style={styles.toolbarChip}>
+              All Agreements: {agreementRows.length}
+            </span>
+            <span style={styles.toolbarChip}>
+              Filtered: {filteredAgreementRows.length}
+            </span>
 
-            <button type="button" onClick={onRefreshAgreements} style={styles.subtleBtn}>
+            <button
+              type="button"
+              onClick={onRefreshAgreements}
+              style={styles.subtleBtn}
+            >
               Refresh
             </button>
 
-            <button type="button" onClick={onClearFilters} style={styles.subtleBtn}>
+            <button
+              type="button"
+              onClick={onClearFilters}
+              style={styles.subtleBtn}
+            >
               Clear Filters
             </button>
           </div>
@@ -221,17 +296,14 @@ export default function AgreementDatabaseCard({
             >
               National Database
             </div>
-
             <select
               value={nationalDatabaseFilter}
               onChange={(e) =>
-                onNationalDatabaseFilterChange(e.target.value as "all" | "shared")
+                onNationalDatabaseFilterChange(
+                  e.target.value as "all" | "shared"
+                )
               }
-              style={{
-                ...styles.select,
-                minWidth: 180,
-                width: "100%",
-              }}
+              style={{ ...styles.select, minWidth: 180, width: "100%" }}
             >
               <option value="all">All</option>
               <option value="shared">Shared</option>
@@ -277,6 +349,33 @@ export default function AgreementDatabaseCard({
             </div>
           )}
         </div>
+
+        <div style={{ marginTop: 14 }}>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={showExpired}
+              onChange={(e) => onShowExpiredChange(e.target.checked)}
+            />
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--muted-strong)",
+              }}
+            >
+              Show Expired Agreements
+            </span>
+          </label>
+        </div>
       </div>
 
       <div
@@ -289,7 +388,9 @@ export default function AgreementDatabaseCard({
         }}
       >
         {filesLoading && (
-          <div style={{ padding: 16, color: "var(--muted)" }}>Loading agreements…</div>
+          <div style={{ padding: 16, color: "var(--muted)" }}>
+            Loading agreements…
+          </div>
         )}
 
         {!filesLoading && agreementRows.length === 0 && (
@@ -298,17 +399,43 @@ export default function AgreementDatabaseCard({
           </div>
         )}
 
-        {!filesLoading && agreementRows.length > 0 && filteredAgreementRows.length === 0 && (
-          <div style={{ padding: 16, color: "var(--muted)" }}>
-            No agreements match the current filters.
-          </div>
-        )}
+        {!filesLoading &&
+          agreementRows.length > 0 &&
+          filteredAgreementRows.length === 0 && (
+            <div style={{ padding: 16, color: "var(--muted)" }}>
+              No agreements match the current filters.{" "}
+              {!showExpired && (
+                <span>
+                  Expired and undated agreements are hidden —{" "}
+                  <button
+                    type="button"
+                    onClick={() => onShowExpiredChange(true)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      color: "var(--accent)",
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                      font: "inherit",
+                      fontSize: "inherit",
+                    }}
+                  >
+                    show all agreements
+                  </button>
+                  .
+                </span>
+              )}
+            </div>
+          )}
 
         {!filesLoading && filteredAgreementRows.length > 0 && (
           <table style={styles.table}>
             <thead>
               <tr>
                 <th style={styles.th}>Agreement Name</th>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}>Effective Period</th>
                 <th style={styles.th}>Chapter</th>
                 <th style={styles.th}>Local Union(s)</th>
                 <th style={styles.th}>Agreement Type</th>
@@ -320,56 +447,71 @@ export default function AgreementDatabaseCard({
               </tr>
             </thead>
             <tbody>
-              {filteredAgreementRows.map((row) => (
-                <tr key={row.id}>
-                  <td style={styles.td}>
-                    <div style={{ fontWeight: 600 }}>{row.agreementName}</div>
-                  </td>
-                  <td style={styles.td}>{row.chapter}</td>
-                  <td style={styles.td}>{row.localUnion}</td>
-                  <td style={styles.td}>{row.agreementType}</td>
-                  <td style={styles.td}>{row.states}</td>
-                  <td style={styles.td}>
-                    <span style={nationalBadgeStyle(row.sharedToCbas)}>
-                      {row.sharedToCbas ? "Shared" : "Not Shared"}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenUploadedFile(row)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        padding: 0,
-                        color: "var(--accent)",
-                        textDecoration: "underline",
-                        cursor: "pointer",
-                        font: "inherit",
-                        fontWeight: 600,
-                        boxShadow: "none",
-                      }}
-                      title="Open uploaded file"
-                    >
-                      {row.filename}
-                    </button>
-                  </td>
-                  <td style={styles.td}>
-                    {row.uploadedAt
-                      ? new Date(row.uploadedAt * 1000).toLocaleString()
-                      : ""}
-                  </td>
-                  <td style={styles.td}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenEditModal(row)}
-                      style={styles.subtleBtn}
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filteredAgreementRows.map((row) => {
+                const agreementStatus = getAgreementStatus(row);
+                return (
+                  <tr key={row.id}>
+                    <td style={styles.td}>
+                      <div style={{ fontWeight: 600 }}>{row.agreementName}</div>
+                    </td>
+                    <td style={styles.td}>
+                      {agreementStatus ? (
+                        <span style={statusBadgeStyle(agreementStatus)}>
+                          {statusLabel(agreementStatus)}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
+                      {row.effectiveFrom || row.effectiveTo
+                        ? `${formatDateShort(row.effectiveFrom)} – ${formatDateShort(row.effectiveTo)}`
+                        : "—"}
+                    </td>
+                    <td style={styles.td}>{row.chapter}</td>
+                    <td style={styles.td}>{row.localUnion}</td>
+                    <td style={styles.td}>{row.agreementType}</td>
+                    <td style={styles.td}>{row.states}</td>
+                    <td style={styles.td}>
+                      <span style={nationalBadgeStyle(row.sharedToCbas)}>
+                        {row.sharedToCbas ? "Shared" : "Not Shared"}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenUploadedFile(row)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          color: "var(--accent)",
+                          textDecoration: "underline",
+                          cursor: "pointer",
+                          font: "inherit",
+                          fontWeight: 600,
+                          boxShadow: "none",
+                        }}
+                        title="Open uploaded file"
+                      >
+                        {row.filename}
+                      </button>
+                    </td>
+                    <td style={styles.td}>
+                      {row.uploadedAt
+                        ? new Date(row.uploadedAt * 1000).toLocaleString()
+                        : ""}
+                    </td>
+                    <td style={styles.td}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenEditModal(row)}
+                        style={styles.subtleBtn}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

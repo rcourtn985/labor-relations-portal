@@ -79,9 +79,9 @@ export async function GET(req: Request) {
             states: null,
             sharedToCbas: true,
             fileUrl: fileId ? `/api/kb/file/${encodeURIComponent(fileId)}` : null,
-            debug: {
-              retrieveError,
-            },
+            effectiveFrom: null,
+            effectiveTo: null,
+            debug: { retrieveError },
           };
         })
       );
@@ -107,6 +107,8 @@ export async function GET(req: Request) {
         cbaType: true,
         state: true,
         sharedToCbas: true,
+        effectiveFrom: true,
+        effectiveTo: true,
       },
     });
 
@@ -128,6 +130,8 @@ export async function GET(req: Request) {
         fileUrl: d.openaiFileId
           ? `/api/kb/file/${encodeURIComponent(d.openaiFileId)}`
           : null,
+        effectiveFrom: d.effectiveFrom ? d.effectiveFrom.toISOString() : null,
+        effectiveTo: d.effectiveTo ? d.effectiveTo.toISOString() : null,
       })),
     });
   } catch (e: any) {

@@ -4,13 +4,17 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 
 type RouteContext = {
-  params: Promise<{
-    id: string;
-  }>;
+  params: Promise<{ id: string }>;
 };
 
 const SHARED_CBAS_KB_ID = "cbas_shared";
 const DEFAULT_OWNER_USER_ID = "system";
+
+function parseDate(value: unknown): Date | null {
+  if (!value || typeof value !== "string" || !value.trim()) return null;
+  const d = new Date(value.trim());
+  return isNaN(d.getTime()) ? null : d;
+}
 
 export async function GET(_req: Request, context: RouteContext) {
   try {
@@ -31,23 +35,15 @@ export async function GET(_req: Request, context: RouteContext) {
         cbaType: true,
         state: true,
         sharedToCbas: true,
+        effectiveFrom: true,
+        effectiveTo: true,
         storageProvider: true,
         storageKey: true,
         mimeType: true,
         fileSizeBytes: true,
         sha256: true,
-        kb: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        textContent: {
-          select: {
-            extractionState: true,
-            extractedAt: true,
-          },
-        },
+        kb: { select: { id: true, name: true } },
+        textContent: { select: { extractionState: true, extractedAt: true } },
       },
     });
 
@@ -69,6 +65,8 @@ export async function GET(_req: Request, context: RouteContext) {
       agreementType: agreement.cbaType ?? "",
       states: agreement.state ?? "",
       sharedToCbas: Boolean(agreement.sharedToCbas),
+      effectiveFrom: agreement.effectiveFrom ? agreement.effectiveFrom.toISOString() : null,
+      effectiveTo: agreement.effectiveTo ? agreement.effectiveTo.toISOString() : null,
       storageProvider: agreement.storageProvider ?? null,
       storageKey: agreement.storageKey ?? null,
       mimeType: agreement.mimeType ?? null,
@@ -85,10 +83,8 @@ export async function GET(_req: Request, context: RouteContext) {
       canPreviewInline:
         hasStoredOriginal &&
         Boolean(agreement.mimeType) &&
-        (
-          agreement.mimeType === "application/pdf" ||
-          agreement.mimeType?.startsWith("text/")
-        ),
+        (agreement.mimeType === "application/pdf" ||
+          agreement.mimeType?.startsWith("text/")),
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Server error";
@@ -115,6 +111,8 @@ export async function PATCH(req: Request, context: RouteContext) {
       typeof body.agreementType === "string" ? body.agreementType.trim() : "";
     const states = typeof body.states === "string" ? body.states.trim() : "";
     const sharedToCbas = Boolean(body.sharedToCbas);
+    const effectiveFrom = parseDate(body.effectiveFrom);
+    const effectiveTo = parseDate(body.effectiveTo);
 
     const existing = await prisma.document.findUnique({
       where: { id },
@@ -139,6 +137,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         cbaType: agreementType || null,
         state: states || null,
         sharedToCbas,
+        effectiveFrom,
+        effectiveTo,
       },
     });
 
@@ -147,9 +147,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         where: {
           isCba: true,
           filename: existing.filename,
-          NOT: {
-            id: existing.id,
-          },
+          NOT: { id: existing.id },
         },
         data: {
           chapter: chapter || null,
@@ -157,6 +155,8 @@ export async function PATCH(req: Request, context: RouteContext) {
           cbaType: agreementType || null,
           state: states || null,
           sharedToCbas,
+          effectiveFrom,
+          effectiveTo,
         },
       });
     }
@@ -175,13 +175,8 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
 
       const existingSharedDoc = await prisma.document.findFirst({
-        where: {
-          kbId: SHARED_CBAS_KB_ID,
-          filename: existing.filename,
-        },
-        select: {
-          id: true,
-        },
+        where: { kbId: SHARED_CBAS_KB_ID, filename: existing.filename },
+        select: { id: true },
       });
 
       if (sharedToCbas) {
@@ -198,6 +193,8 @@ export async function PATCH(req: Request, context: RouteContext) {
               cbaType: agreementType || null,
               state: states || null,
               sharedToCbas: true,
+              effectiveFrom,
+              effectiveTo,
             },
           });
         } else {
@@ -209,14 +206,14 @@ export async function PATCH(req: Request, context: RouteContext) {
               cbaType: agreementType || null,
               state: states || null,
               sharedToCbas: true,
+              effectiveFrom,
+              effectiveTo,
             },
           });
         }
       } else {
         if (existingSharedDoc) {
-          await prisma.document.delete({
-            where: { id: existingSharedDoc.id },
-          });
+          await prisma.document.delete({ where: { id: existingSharedDoc.id } });
         }
       }
     }
@@ -224,17 +221,12 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (agreementName) {
       await prisma.knowledgeBase.update({
         where: { id: existing.kbId },
-        data: {
-          name: agreementName,
-        },
+        data: { name: agreementName },
       });
     }
 
     const updated = await prisma.document.findMany({
-      where: {
-        isCba: true,
-        filename: existing.filename ?? undefined,
-      },
+      where: { isCba: true, filename: existing.filename ?? undefined },
       select: {
         id: true,
         filename: true,
@@ -243,16 +235,11 @@ export async function PATCH(req: Request, context: RouteContext) {
         cbaType: true,
         state: true,
         sharedToCbas: true,
-        kb: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        effectiveFrom: true,
+        effectiveTo: true,
+        kb: { select: { id: true, name: true } },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
     return NextResponse.json({
@@ -268,6 +255,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         agreementType: doc.cbaType ?? "",
         states: doc.state ?? "",
         sharedToCbas: Boolean(doc.sharedToCbas),
+        effectiveFrom: doc.effectiveFrom ? doc.effectiveFrom.toISOString() : null,
+        effectiveTo: doc.effectiveTo ? doc.effectiveTo.toISOString() : null,
       })),
     });
   } catch (e: unknown) {
