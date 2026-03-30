@@ -11,8 +11,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum KBVisibility {
@@ -51,34 +52,34 @@ model KnowledgeBase {
 }
 
 model Document {
-  id            String        @id @default(cuid())
+  id          String        @id @default(cuid())
 
-  ownerUserId   String
-  ownerUser     User          @relation(fields: [ownerUserId], references: [id])
+  ownerUserId String
+  ownerUser   User          @relation(fields: [ownerUserId], references: [id])
 
-  kbId          String
-  kb            KnowledgeBase @relation(fields: [kbId], references: [id])
+  kbId        String
+  kb          KnowledgeBase @relation(fields: [kbId], references: [id])
 
-  openaiFileId  String
-  filename      String
-  createdAt     DateTime      @default(now())
+  openaiFileId String
+  filename     String
+  createdAt    DateTime     @default(now())
 
   // CBA metadata (optional; captured when a user marks an upload as a CBA)
-  isCba         Boolean       @default(false)
+  isCba        Boolean      @default(false)
 
   // New metadata
-  chapter       String?
-  cbaType       String?
+  chapter      String?
+  cbaType      String?
 
   // Existing metadata (state can hold comma-separated list for "State(s)" MVP)
-  state         String?
-  localUnion    String?
-  employer      String?
+  state        String?
+  localUnion   String?
+  employer     String?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
 
   // Whether this document was also added to the system "All CBAs" KB
-  sharedToCbas  Boolean       @default(false)
+  sharedToCbas Boolean      @default(false)
 
   // Original file storage metadata
   storageProvider String?
@@ -87,7 +88,7 @@ model Document {
   fileSizeBytes   Int?
   sha256          String?
 
-  textContent   DocumentText?
+  textContent  DocumentText?
 
   @@index([kbId])
   @@index([ownerUserId])
@@ -98,13 +99,13 @@ model Document {
 }
 
 model DocumentText {
-  id              String    @id @default(cuid())
-  documentId      String    @unique
-  document        Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id              String   @id @default(cuid())
+  documentId      String   @unique
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   extractedText   String
-  extractionState String    @default("completed")
-  extractedAt     DateTime  @default(now())
+  extractionState String   @default("completed")
+  extractedAt     DateTime @default(now())
 
   @@index([documentId])
 }

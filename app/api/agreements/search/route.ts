@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
           is: {
             extractedText: {
               contains: q,
+              mode: "insensitive",
             },
           },
         },
