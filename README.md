@@ -28,7 +28,8 @@ Working areas include:
 - extracted text storage for agreement content search
 - agreement database page with filters and content search
 - side-panel agreement preview
-- in-document PDF viewing with search and highlight modes
+- in-document PDF viewing with search and highlight
+- in-document text view with search and highlight
 - chat retrieval against agreement-related knowledge bases
 
 Current direction:
@@ -43,12 +44,11 @@ The main working surface for uploaded agreements.
 
 Includes:
 - agreement list and filters
+- agreement name as clickable link to open document preview
 - agreement metadata editing
 - content search against extracted agreement text
-- side-panel document preview
-- PDF search modes:
-  - **Precise**: highlights the exact matched word or phrase
-  - **Context**: highlights the broader matching text block
+- side-panel document preview with PDF and text view modes
+- in-document search toolbar with Context and Precise modes and prev/next navigation
 
 ### Upload and storage
 Uploads currently:
@@ -67,7 +67,7 @@ Current intent is for chat to work alongside the agreement database rather than 
 - **Framework:** Next.js (App Router)
 - **Language:** TypeScript
 - **Database ORM:** Prisma
-- **Current database:** SQLite
+- **Current database:** PostgreSQL (Neon)
 - **Current original file storage:** local filesystem under `storage/originals`
 - **PDF text extraction:** Python with `pypdf`
 - **PDF in-app preview/search:** custom PDF.js-based viewer page under `public/pdfjs`
@@ -76,9 +76,9 @@ Current intent is for chat to work alongside the agreement database rather than 
 ## Current architecture notes
 
 ### Database
-The project currently uses SQLite for development.
+The project has migrated from SQLite to **PostgreSQL** (hosted on Neon) for development.
 
-This is acceptable for local development and active iteration, but the long-term expectation before broader alpha use is to move to **PostgreSQL** for hosted multi-user usage.
+This supports the long-term expectation of hosted multi-user usage before broader alpha release.
 
 ### Original file storage
 Original uploaded files are currently stored locally under:
