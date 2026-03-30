@@ -322,10 +322,7 @@
           const normalizedQuery = normalizeText(query);
           if (!normalizedQuery) return null;
 
-          const isSingleWord = !/\s/.test(normalizedQuery);
-          const source = isSingleWord
-            ? `\\b${escapeRegex(normalizedQuery)}\\b`
-            : escapeRegex(normalizedQuery).replace(/\\ /g, "\\s+");
+          const source = escapeRegex(normalizedQuery).replace(/\\ /g, "\\s+");
 
           return {
             normalizedQuery,

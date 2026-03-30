@@ -2,9 +2,9 @@ import React from "react";
 
 export const manageAgreementsStyles = {
   page: {
-    maxWidth: 1320,
+    maxWidth: 1800,
     margin: "0 auto",
-    padding: "28px 20px 24px",
+    padding: "28px clamp(20px, 3vw, 56px) 24px",
     color: "var(--foreground)",
   } as React.CSSProperties,
 

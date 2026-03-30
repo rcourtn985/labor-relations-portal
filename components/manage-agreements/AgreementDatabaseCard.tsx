@@ -27,6 +27,7 @@ type AgreementDatabaseCardProps = {
   selectedStates: string[];
   nationalDatabaseFilter: "all" | "shared";
   showExpired: boolean;
+  hideContentSearch?: boolean;
   onAgreementNameQueryChange: (value: string) => void;
   onContentSearchQueryChange: (value: string) => void;
   onSelectedChaptersChange: (value: string[]) => void;
@@ -39,6 +40,8 @@ type AgreementDatabaseCardProps = {
   onRefreshAgreements: () => void;
   onOpenUploadedFile: (row: AgreementRow) => void;
   onOpenEditModal: (row: AgreementRow) => void;
+  onDeleteAgreement: (row: AgreementRow) => void;
+  isDeletingAgreementId: string | null;
 };
 
 type AgreementStatus = "active" | "expired" | "upcoming";
@@ -123,6 +126,7 @@ export default function AgreementDatabaseCard({
   selectedStates,
   nationalDatabaseFilter,
   showExpired,
+  hideContentSearch,
   onAgreementNameQueryChange,
   onContentSearchQueryChange,
   onSelectedChaptersChange,
@@ -135,6 +139,8 @@ export default function AgreementDatabaseCard({
   onRefreshAgreements,
   onOpenUploadedFile,
   onOpenEditModal,
+  onDeleteAgreement,
+  isDeletingAgreementId,
 }: AgreementDatabaseCardProps) {
   return (
     <div
@@ -311,44 +317,73 @@ export default function AgreementDatabaseCard({
           </div>
         </div>
 
-        <div style={{ marginTop: 14 }}>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: "var(--muted-strong)",
-              marginBottom: 6,
-            }}
-          >
-            Agreement Content Search
-          </div>
-          <input
-            type="text"
-            value={contentSearchQuery}
-            onChange={(e) => onContentSearchQueryChange(e.target.value)}
-            placeholder='Find agreements containing a phrase, for example "hot stick"...'
-            style={styles.input}
-          />
-          {(searchLoading || searchError || contentSearchQuery.trim()) && (
+        {!hideContentSearch && (
+          <div style={{ marginTop: 14 }}>
             <div
               style={{
-                marginTop: 8,
-                fontSize: 13,
-                color: searchError ? "#8b2e2e" : "var(--muted-strong)",
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "var(--muted-strong)",
+                marginBottom: 6,
               }}
             >
-              {searchError
-                ? `Search error: ${searchError}`
-                : searchLoading
-                ? "Searching agreement text…"
-                : contentSearchQuery.trim()
-                ? "Showing agreements whose extracted text matches the current search."
-                : ""}
+              Agreement Content Search
             </div>
-          )}
-        </div>
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                value={contentSearchQuery}
+                onChange={(e) => onContentSearchQueryChange(e.target.value)}
+                placeholder='Find agreements containing a phrase, for example "hot stick"...'
+                style={{
+                  ...styles.input,
+                  paddingRight: contentSearchQuery ? 32 : undefined,
+                }}
+              />
+              {contentSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onContentSearchQueryChange("")}
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none",
+                    border: "none",
+                    padding: "0 2px",
+                    cursor: "pointer",
+                    color: "var(--muted-strong)",
+                    fontSize: 14,
+                    lineHeight: 1,
+                  }}
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            {(searchLoading || searchError || contentSearchQuery.trim()) && (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 13,
+                  color: searchError ? "#8b2e2e" : "var(--muted-strong)",
+                }}
+              >
+                {searchError
+                  ? `Search error: ${searchError}`
+                  : searchLoading
+                  ? "Searching agreement text…"
+                  : contentSearchQuery.trim()
+                  ? "Showing agreements whose extracted text matches the current search."
+                  : ""}
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ marginTop: 14 }}>
           <label
@@ -441,7 +476,6 @@ export default function AgreementDatabaseCard({
                 <th style={styles.th}>Agreement Type</th>
                 <th style={styles.th}>States</th>
                 <th style={styles.th}>National Database</th>
-                <th style={styles.th}>File Name</th>
                 <th style={styles.th}>Uploaded</th>
                 <th style={styles.th}>Actions</th>
               </tr>
@@ -449,10 +483,29 @@ export default function AgreementDatabaseCard({
             <tbody>
               {filteredAgreementRows.map((row) => {
                 const agreementStatus = getAgreementStatus(row);
+                const isDeleting = isDeletingAgreementId === row.id;
                 return (
                   <tr key={row.id}>
                     <td style={styles.td}>
-                      <div style={{ fontWeight: 600 }}>{row.agreementName}</div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenUploadedFile(row)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          color: "var(--accent)",
+                          textDecoration: "underline",
+                          cursor: "pointer",
+                          font: "inherit",
+                          fontWeight: 600,
+                          boxShadow: "none",
+                          textAlign: "left",
+                        }}
+                        title={`Open ${row.filename}`}
+                      >
+                        {row.agreementName}
+                      </button>
                     </td>
                     <td style={styles.td}>
                       {agreementStatus ? (
@@ -476,38 +529,39 @@ export default function AgreementDatabaseCard({
                       </span>
                     </td>
                     <td style={styles.td}>
-                      <button
-                        type="button"
-                        onClick={() => onOpenUploadedFile(row)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
-                          color: "var(--accent)",
-                          textDecoration: "underline",
-                          cursor: "pointer",
-                          font: "inherit",
-                          fontWeight: 600,
-                          boxShadow: "none",
-                        }}
-                        title="Open uploaded file"
-                      >
-                        {row.filename}
-                      </button>
-                    </td>
-                    <td style={styles.td}>
                       {row.uploadedAt
                         ? new Date(row.uploadedAt * 1000).toLocaleString()
                         : ""}
                     </td>
                     <td style={styles.td}>
-                      <button
-                        type="button"
-                        onClick={() => onOpenEditModal(row)}
-                        style={styles.subtleBtn}
-                      >
-                        Edit
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => onOpenEditModal(row)}
+                          disabled={isDeleting}
+                          style={{
+                            ...styles.subtleBtn,
+                            ...(isDeleting ? styles.btnDisabled : null),
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteAgreement(row)}
+                          disabled={isDeleting}
+                          style={{
+                            ...styles.subtleBtn,
+                            ...(isDeleting ? styles.btnDisabled : null),
+                            color: isDeleting ? undefined : "#991b1b",
+                            borderColor: isDeleting
+                              ? undefined
+                              : "rgba(185,28,28,0.25)",
+                          }}
+                        >
+                          {isDeleting ? "Deleting…" : "Delete"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

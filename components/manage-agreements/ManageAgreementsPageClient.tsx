@@ -182,6 +182,9 @@ export default function ManageAgreementsPageClient() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<AgreementPreviewResponse | null>(null);
+  const [previewInitialSearchQuery, setPreviewInitialSearchQuery] = useState("");
+
+  const [isDeletingAgreementId, setIsDeletingAgreementId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -320,10 +323,10 @@ export default function ManageAgreementsPageClient() {
 
       const data = (await res.json()) as ExtractedMetadata;
 
-      if (data.agreementName) setAgreementName(data.agreementName);
-      if (data.chapter) setChapter(data.chapter);
+      //if (data.agreementName) setAgreementName(data.agreementName);
+      //if (data.chapter) setChapter(data.chapter);
       if (data.localUnion) setLocalUnion(data.localUnion);
-      if (data.agreementType) setAgreementType(data.agreementType);
+      //if (data.agreementType) setAgreementType(data.agreementType);
       if (data.states) setStates(data.states);
       if (data.effectiveFrom) setEffectiveFrom(data.effectiveFrom);
       if (data.effectiveTo) setEffectiveTo(data.effectiveTo);
@@ -552,6 +555,7 @@ export default function ManageAgreementsPageClient() {
     setPreviewLoading(false);
     setPreviewError(null);
     setPreviewData(null);
+    setPreviewInitialSearchQuery("");
   }
 
   async function openUploadedFile(row: AgreementRow) {
@@ -559,6 +563,7 @@ export default function ManageAgreementsPageClient() {
     setPreviewError(null);
     setPreviewLoading(true);
     setPreviewData(null);
+    setPreviewInitialSearchQuery(contentSearchQuery.trim());
     setIsPreviewOpen(true);
 
     try {
@@ -576,6 +581,35 @@ export default function ManageAgreementsPageClient() {
       setPreviewError(e?.message ?? "Failed to load agreement preview.");
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  async function deleteAgreement(row: AgreementRow) {
+    const confirmed = window.confirm(
+      `Delete "${row.agreementName}"?\n\nThis will permanently remove the agreement and its file from the database. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingAgreementId(row.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/agreements/${encodeURIComponent(row.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Delete failed.");
+      }
+      if (previewData?.id === row.id) {
+        closePreviewPanel();
+      }
+      await loadAllAgreements().catch(() =>
+        setError("Failed to refresh agreements.")
+      );
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete agreement.");
+    } finally {
+      setIsDeletingAgreementId(null);
     }
   }
 
@@ -790,7 +824,7 @@ export default function ManageAgreementsPageClient() {
         style={{
           display: "grid",
           gridTemplateColumns: showPreviewPane
-            ? "minmax(0, 0.85fr) minmax(620px, 1.25fr)"
+            ? "minmax(0, 1fr) minmax(0, 2fr)"
             : "minmax(0, 1fr)",
           gap: 18,
           alignItems: "start",
@@ -815,6 +849,7 @@ export default function ManageAgreementsPageClient() {
             selectedStates={selectedStates}
             nationalDatabaseFilter={nationalDatabaseFilter}
             showExpired={showExpired}
+            hideContentSearch={isPreviewOpen}
             onAgreementNameQueryChange={setAgreementNameQuery}
             onContentSearchQueryChange={setContentSearchQuery}
             onSelectedChaptersChange={setSelectedChapters}
@@ -831,6 +866,8 @@ export default function ManageAgreementsPageClient() {
             }
             onOpenUploadedFile={openUploadedFile}
             onOpenEditModal={openEditModal}
+            onDeleteAgreement={deleteAgreement}
+            isDeletingAgreementId={isDeletingAgreementId}
           />
         </div>
 
@@ -854,6 +891,7 @@ export default function ManageAgreementsPageClient() {
                 gridTemplateRows: "auto minmax(78vh, calc(100vh - 180px))",
               }}
             >
+              {/* Header */}
               <div
                 style={{
                   padding: "12px 14px",
@@ -864,6 +902,7 @@ export default function ManageAgreementsPageClient() {
                   justifyContent: "space-between",
                   alignItems: "center",
                   gap: 12,
+                  flexWrap: "wrap",
                 }}
               >
                 <div
@@ -881,8 +920,6 @@ export default function ManageAgreementsPageClient() {
                       fontWeight: 800,
                       color: "var(--foreground)",
                       lineHeight: 1.2,
-                      minWidth: 0,
-                      maxWidth: "100%",
                     }}
                     title={previewData?.agreementName || ""}
                   >
@@ -894,35 +931,14 @@ export default function ManageAgreementsPageClient() {
                       style={{
                         fontSize: 12,
                         color: "var(--muted)",
-                        minWidth: 0,
-                        maxWidth: "100%",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
+                        maxWidth: 220,
                       }}
                       title={previewData.filename}
                     >
                       {previewData.filename}
-                    </div>
-                  )}
-
-                  {contentSearchQuery.trim() && (
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        background: "rgba(37, 99, 235, 0.10)",
-                        border: "1px solid rgba(37, 99, 235, 0.16)",
-                        color: "var(--muted-strong)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        maxWidth: "100%",
-                      }}
-                      title={contentSearchQuery.trim()}
-                    >
-                      Search: "{contentSearchQuery.trim()}"
                     </div>
                   )}
                 </div>
@@ -932,9 +948,8 @@ export default function ManageAgreementsPageClient() {
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    flexWrap: "wrap",
-                    justifyContent: "flex-end",
                     flexShrink: 0,
+                    flexWrap: "wrap",
                   }}
                 >
                   {previewData?.fileUrl && (
@@ -946,7 +961,6 @@ export default function ManageAgreementsPageClient() {
                       >
                         Download
                       </a>
-
                       <a
                         href={previewData.fileUrl}
                         target="_blank"
@@ -957,24 +971,18 @@ export default function ManageAgreementsPageClient() {
                       </a>
                     </>
                   )}
-
                   <button
                     type="button"
                     onClick={closePreviewPanel}
                     style={styles.subtleBtn}
                   >
-                    Close Preview
+                    Close
                   </button>
                 </div>
               </div>
 
-              <div
-                style={{
-                  minHeight: 0,
-                  background: "#fff",
-                  display: "grid",
-                }}
-              >
+              {/* Body */}
+              <div style={{ minHeight: 0, background: "#fff", display: "grid" }}>
                 {previewLoading && (
                   <div
                     style={{
@@ -1000,7 +1008,7 @@ export default function ManageAgreementsPageClient() {
                     previewData.mimeType === "application/pdf" ? (
                       <AgreementPdfViewer
                         fileUrl={previewData.fileUrl}
-                        searchQuery={contentSearchQuery}
+                        searchQuery={previewInitialSearchQuery}
                       />
                     ) : (
                       <iframe

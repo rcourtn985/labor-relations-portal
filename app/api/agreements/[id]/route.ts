@@ -264,3 +264,64 @@ export async function PATCH(req: Request, context: RouteContext) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export async function DELETE(_req: Request, context: RouteContext) {
+  try {
+    const { id } = await context.params;
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing agreement id." }, { status: 400 });
+    }
+
+    const doc = await prisma.document.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        kbId: true,
+        filename: true,
+        isCba: true,
+        storageProvider: true,
+        storageKey: true,
+      },
+    });
+
+    if (!doc) {
+      return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
+    }
+
+    // Delete shared copy in national KB if it exists
+    if (doc.isCba && doc.filename) {
+      const sharedCopy = await prisma.document.findFirst({
+        where: { kbId: SHARED_CBAS_KB_ID, filename: doc.filename },
+        select: { id: true },
+      });
+      if (sharedCopy) {
+        await prisma.document.delete({ where: { id: sharedCopy.id } });
+      }
+    }
+
+    // Delete the document record (DocumentText cascades automatically)
+    await prisma.document.delete({ where: { id } });
+
+    // Delete the KB if it is now empty
+    const remainingDocs = await prisma.document.count({ where: { kbId: doc.kbId } });
+    if (remainingDocs === 0) {
+      await prisma.knowledgeBase.delete({ where: { id: doc.kbId } }).catch(() => {});
+    }
+
+    // Delete the local storage file
+    if (doc.storageProvider === "local" && doc.storageKey) {
+      const nodePath = await import("path");
+      const { promises: nodeFs } = await import("fs");
+      const { getLocalStoredFilePath } = await import("@/lib/storage");
+      const fullPath = getLocalStoredFilePath(doc.storageKey);
+      const dir = nodePath.default.dirname(fullPath);
+      await nodeFs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

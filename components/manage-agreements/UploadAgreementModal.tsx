@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { manageAgreementsStyles as styles } from "./styles";
 
 type UploadAgreementModalProps = {
@@ -34,18 +34,52 @@ type UploadAgreementModalProps = {
   onUpload: () => void;
 };
 
-function getUploadProgressPercent(status: string | null): number {
-  if (!status) return 0;
-  const value = status.toLowerCase();
-  if (value.includes("preparing")) return 8;
-  if (value.includes("storing original")) return 18;
-  if (value.includes("extracting text")) return 32;
-  if (value.includes("uploading to openai")) return 50;
-  if (value.includes("indexing")) return 72;
-  if (value.includes("refreshing agreements")) return 90;
-  if (value.includes("done")) return 100;
-  if (value.includes("uploading")) return 12;
-  return 0;
+function SmoothProgressBar({
+  percent,
+  label,
+}: {
+  percent: number;
+  label: string;
+}) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+          gap: 12,
+        }}
+      >
+        <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
+          {label}
+        </div>
+        <div style={{ color: "var(--muted)", fontSize: 13, fontWeight: 700 }}>
+          {Math.round(percent)}%
+        </div>
+      </div>
+      <div
+        style={{
+          height: 10,
+          borderRadius: 999,
+          background: "rgba(31, 58, 95, 0.10)",
+          overflow: "hidden",
+          border: "1px solid rgba(31, 58, 95, 0.08)",
+        }}
+      >
+        <div
+          style={{
+            width: `${percent}%`,
+            height: "100%",
+            borderRadius: 999,
+            background: "var(--brand-gradient)",
+            transition: "width 480ms cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
+        />
+      </div>
+    </div>
+  );
 }
 
 const labelStyle: React.CSSProperties = {
@@ -90,9 +124,37 @@ export default function UploadAgreementModal({
   onHandleDroppedFiles,
   onUpload,
 }: UploadAgreementModalProps) {
+  const [smoothUploadPercent, setSmoothUploadPercent] = useState(0);
+  const [smoothExtractPercent, setSmoothExtractPercent] = useState(0);
+
+  useEffect(() => {
+    if (!isUploading) {
+      setSmoothUploadPercent(0);
+      return;
+    }
+    setSmoothUploadPercent(3);
+    const interval = window.setInterval(() => {
+      setSmoothUploadPercent((prev) => Math.min(prev + (88 - prev) * 0.055, 88));
+    }, 600);
+    return () => window.clearInterval(interval);
+  }, [isUploading]);
+
+  useEffect(() => {
+    if (isExtracting) {
+      setSmoothExtractPercent(3);
+      const interval = window.setInterval(() => {
+        setSmoothExtractPercent((prev) => Math.min(prev + (82 - prev) * 0.07, 82));
+      }, 500);
+      return () => window.clearInterval(interval);
+    } else {
+      setSmoothExtractPercent((prev) => (prev > 0 ? 100 : 0));
+      const t = window.setTimeout(() => setSmoothExtractPercent(0), 700);
+      return () => window.clearTimeout(t);
+    }
+  }, [isExtracting]);
+
   if (!isOpen) return null;
 
-  const progressPercent = getUploadProgressPercent(uploadStatus);
   const busy = isUploading || isExtracting;
 
   const dropZoneStyle: React.CSSProperties = {
@@ -206,23 +268,6 @@ export default function UploadAgreementModal({
               </div>
             )}
           </div>
-
-          {isExtracting && (
-            <div
-              style={{
-                marginTop: 14,
-                padding: "10px 14px",
-                borderRadius: 8,
-                background: "rgba(37, 99, 235, 0.06)",
-                border: "1px solid rgba(37, 99, 235, 0.16)",
-                color: "var(--muted-strong)",
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              Analyzing agreement and extracting metadata…
-            </div>
-          )}
 
           <div
             style={{
@@ -359,51 +404,18 @@ export default function UploadAgreementModal({
             </div>
           </div>
 
-          {uploadStatus && (
-            <div style={{ marginTop: 16 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 8,
-                  gap: 12,
-                }}
-              >
-                <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
-                  {uploadStatus}
-                </div>
-                <div
-                  style={{
-                    color: "var(--muted)",
-                    fontSize: 13,
-                    fontWeight: 700,
-                  }}
-                >
-                  {progressPercent}%
-                </div>
-              </div>
+          {(isExtracting || smoothExtractPercent > 0) && (
+            <SmoothProgressBar
+              percent={smoothExtractPercent}
+              label="Analyzing agreement and extracting metadata…"
+            />
+          )}
 
-              <div
-                style={{
-                  height: 10,
-                  borderRadius: 999,
-                  background: "rgba(31, 58, 95, 0.10)",
-                  overflow: "hidden",
-                  border: "1px solid rgba(31, 58, 95, 0.08)",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${progressPercent}%`,
-                    height: "100%",
-                    borderRadius: 999,
-                    background: "var(--brand-gradient)",
-                    transition: "width 280ms ease",
-                  }}
-                />
-              </div>
-            </div>
+          {(isUploading || smoothUploadPercent > 0) && (
+            <SmoothProgressBar
+              percent={smoothUploadPercent}
+              label={uploadStatus ?? "Uploading…"}
+            />
           )}
 
           {uploadError && (
