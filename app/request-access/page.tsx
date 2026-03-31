@@ -1,9 +1,8 @@
 import { auth } from "@/auth";
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import LoginForm from "./LoginForm";
+import RequestAccessForm from "./RequestAccessForm";
 
-export default async function LoginPage() {
+export default async function RequestAccessPage() {
   const session = await auth();
 
   if (session?.user) {
@@ -23,7 +22,7 @@ export default async function LoginPage() {
       <div
         style={{
           width: "100%",
-          maxWidth: 420,
+          maxWidth: 720,
           border: "1px solid var(--border)",
           borderRadius: 20,
           background: "var(--panel)",
@@ -31,27 +30,15 @@ export default async function LoginPage() {
           padding: 24,
         }}
       >
-        <h1 style={{ margin: 0, marginBottom: 8, fontSize: 28 }}>Sign in</h1>
+        <h1 style={{ margin: 0, marginBottom: 8, fontSize: 28 }}>
+          Request Access
+        </h1>
         <p style={{ marginTop: 0, marginBottom: 20, color: "var(--muted)" }}>
-          Use your approved account credentials to access the portal.
+          Submit your information for administrator review. Once approved, you
+          will receive instructions to activate your account.
         </p>
 
-        <LoginForm />
-
-        <div
-          style={{
-            marginTop: 18,
-            display: "grid",
-            gap: 8,
-            fontSize: 14,
-            color: "var(--muted)",
-          }}
-        >
-          <div>
-            Need access? <Link href="/request-access">Request an account</Link>
-          </div>
-          <div>Forgot password flow will be added next.</div>
-        </div>
+        <RequestAccessForm />
       </div>
     </div>
   );

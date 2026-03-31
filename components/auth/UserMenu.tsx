@@ -6,9 +6,15 @@ import { useEffect, useRef, useState } from "react";
 
 type UserMenuProps = {
   firstName: string;
+  isSystemAdmin?: boolean;
+  isChapterAdmin?: boolean;
 };
 
-export default function UserMenu({ firstName }: UserMenuProps) {
+export default function UserMenu({
+  firstName,
+  isSystemAdmin = false,
+  isChapterAdmin = false,
+}: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -81,6 +87,28 @@ export default function UserMenu({ firstName }: UserMenuProps) {
           >
             Profile
           </Link>
+
+          {isSystemAdmin ? (
+            <Link
+              href="/admin"
+              className="os-user-menu__item"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+            >
+              Site Administration
+            </Link>
+          ) : null}
+
+          {!isSystemAdmin && isChapterAdmin ? (
+            <Link
+              href="/chapter-admin"
+              className="os-user-menu__item"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+            >
+              Chapter Administration
+            </Link>
+          ) : null}
 
           <button
             type="button"

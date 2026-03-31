@@ -52,6 +52,13 @@ type SqliteDocumentText = {
   extractedAt: string;
 };
 
+function normalizeEmail(user: SqliteUser): string {
+  const trimmed = user.email?.trim().toLowerCase();
+  if (trimmed) return trimmed;
+
+  return `migrated-${user.id}@placeholder.local`;
+}
+
 async function main() {
   console.log(`Opening SQLite at: ${SQLITE_PATH}`);
   const db = new Database(SQLITE_PATH, { readonly: true });
@@ -67,8 +74,6 @@ async function main() {
     `Read from SQLite — users: ${users.length}, KBs: ${kbs.length}, documents: ${documents.length}, text records: ${documentTexts.length}`
   );
 
-  // --- Users ---
-  // Upsert all (system user already exists in Neon — upsert is a no-op for it)
   console.log("\nMigrating users...");
   for (const u of users) {
     await prisma.user.upsert({
@@ -76,7 +81,7 @@ async function main() {
       update: {},
       create: {
         id: u.id,
-        email: u.email ?? undefined,
+        email: normalizeEmail(u),
         name: u.name ?? undefined,
         createdAt: new Date(u.createdAt),
       },
@@ -84,8 +89,6 @@ async function main() {
     console.log(`  ✓ user ${u.id}`);
   }
 
-  // --- KnowledgeBases ---
-  // Upsert all (central and cbas_shared already exist — no-op for them)
   console.log("\nMigrating knowledge bases...");
   for (const k of kbs) {
     await prisma.knowledgeBase.upsert({
@@ -103,7 +106,6 @@ async function main() {
     console.log(`  ✓ KB "${k.name}" (${k.id})`);
   }
 
-  // --- Documents ---
   console.log("\nMigrating documents...");
   for (const d of documents) {
     await prisma.document.upsert({
@@ -135,7 +137,6 @@ async function main() {
     console.log(`  ✓ document "${d.filename}" (${d.id})`);
   }
 
-  // --- DocumentText ---
   console.log("\nMigrating extracted text records...");
   for (const t of documentTexts) {
     await prisma.documentText.upsert({

@@ -130,21 +130,22 @@ model ChapterMembership {
 }
 
 model AccessRequest {
-  id                 String              @id @default(cuid())
-  firstName          String
-  lastName           String
-  email              String
-  phone              String?
-  requestedChapterId String?
-  comments           String?
-  status             AccessRequestStatus @default(PENDING)
-  submittedAt        DateTime            @default(now())
-  reviewedAt         DateTime?
-  reviewedByUserId   String?
-  denialReason       String?
-  adminNotes         String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @default(now()) @updatedAt
+  id                      String                @id @default(cuid())
+  firstName               String
+  lastName                String
+  email                   String
+  phone                   String?
+  requestedChapterId      String?
+  requestedMembershipRole ChapterMembershipRole @default(USER)
+  comments                String?
+  status                  AccessRequestStatus   @default(PENDING)
+  submittedAt             DateTime              @default(now())
+  reviewedAt              DateTime?
+  reviewedByUserId        String?
+  denialReason            String?
+  adminNotes              String?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @default(now()) @updatedAt
 
   requestedChapter Chapter? @relation(fields: [requestedChapterId], references: [id], onDelete: SetNull)
   reviewedByUser   User?    @relation("AccessRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
@@ -152,6 +153,7 @@ model AccessRequest {
   @@index([status, submittedAt])
   @@index([email])
   @@index([requestedChapterId])
+  @@index([requestedMembershipRole])
 }
 
 model KnowledgeBase {

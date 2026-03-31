@@ -6,7 +6,10 @@ export async function proxy(req: NextRequest) {
 
   const isPublicPath =
     pathname === "/login" ||
+    pathname === "/request-access" ||
     pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/access-requests") ||
+    pathname.startsWith("/api/chapters/public") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico";
 
@@ -29,5 +32,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

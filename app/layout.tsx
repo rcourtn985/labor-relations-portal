@@ -31,6 +31,17 @@ export default async function RootLayout({
     user?.email?.trim()?.split("@")[0] ||
     "User";
 
+  const isSystemAdmin = (user as any)?.globalRole === "SYSTEM_ADMIN";
+  const memberships = (((user as any)?.memberships ?? []) as Array<{
+    chapterId: string;
+    chapterName: string;
+    role: "CHAPTER_ADMIN" | "USER";
+  }>);
+
+  const isChapterAdmin = memberships.some(
+    (membership) => membership.role === "CHAPTER_ADMIN"
+  );
+
   return (
     <html lang="en">
       <body
@@ -41,7 +52,13 @@ export default async function RootLayout({
             <div className="os-topbar__brand">Labor Relations Portal</div>
 
             <div className="os-topbar__actions">
-              {user ? <UserMenu firstName={firstName} /> : null}
+              {user ? (
+                <UserMenu
+                  firstName={firstName}
+                  isSystemAdmin={isSystemAdmin}
+                  isChapterAdmin={isChapterAdmin}
+                />
+              ) : null}
             </div>
           </header>
 
