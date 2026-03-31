@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { auth } from "@/auth";
+import UserMenu from "@/components/auth/UserMenu";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,17 +19,32 @@ export const metadata: Metadata = {
   description: "The source for Labor Relations information.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const user = session?.user ?? null;
+  const firstName =
+    user?.name?.trim()?.split(/\s+/)[0] ||
+    user?.email?.trim()?.split("@")[0] ||
+    "User";
+
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <div className="os-app-shell">
+          <header className="os-topbar">
+            <div className="os-topbar__brand">Labor Relations Portal</div>
+
+            <div className="os-topbar__actions">
+              {user ? <UserMenu firstName={firstName} /> : null}
+            </div>
+          </header>
+
           <main className="os-app-main">{children}</main>
           <footer className="os-footer">© Overclocked Solutions</footer>
         </div>

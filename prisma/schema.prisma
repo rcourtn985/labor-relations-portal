@@ -65,7 +65,7 @@ model User {
   globalRole    GlobalRole    @default(STANDARD)
   accountStatus AccountStatus @default(INVITED)
   createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  updatedAt     DateTime      @default(now()) @updatedAt
   deletedAt     DateTime?
 
   accounts Account[]
@@ -99,7 +99,7 @@ model Chapter {
   code      String?   @unique
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  updatedAt DateTime  @default(now()) @updatedAt
   deletedAt DateTime?
 
   memberships             ChapterMembership[]
@@ -119,7 +119,7 @@ model ChapterMembership {
   role      ChapterMembershipRole
   isActive  Boolean               @default(true)
   createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
+  updatedAt DateTime              @default(now()) @updatedAt
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
@@ -144,7 +144,7 @@ model AccessRequest {
   denialReason       String?
   adminNotes         String?
   createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  updatedAt          DateTime            @default(now()) @updatedAt
 
   requestedChapter Chapter? @relation(fields: [requestedChapterId], references: [id], onDelete: SetNull)
   reviewedByUser   User?    @relation("AccessRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
@@ -167,7 +167,7 @@ model KnowledgeBase {
   chapter   Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
 
   createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  updatedAt DateTime  @default(now()) @updatedAt
   deletedAt DateTime?
 
   documents Document[]
@@ -181,18 +181,15 @@ model KnowledgeBase {
 model Document {
   id String @id @default(cuid())
 
-  // Transitional legacy owner linkage used by current code.
   ownerUserId String
   ownerUser   User   @relation("DocumentOwner", fields: [ownerUserId], references: [id])
 
   kbId String
   kb   KnowledgeBase @relation(fields: [kbId], references: [id])
 
-  // Durable chapter ownership for agreement control.
   chapterId    String?
   chapterOwner Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
 
-  // Audit actors
   createdByUserId                 String?
   updatedByUserId                 String?
   publishedToNationalByUserId     String?
@@ -208,12 +205,11 @@ model Document {
   openaiFileId String
   filename     String
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  updatedAt    DateTime  @default(now()) @updatedAt
   deletedAt    DateTime?
 
   isCba Boolean @default(false)
 
-  // Retained temporarily for current app compatibility.
   chapter String?
 
   cbaType       String?
@@ -223,7 +219,6 @@ model Document {
   effectiveFrom DateTime?
   effectiveTo   DateTime?
 
-  // National publication state
   sharedToCbas              Boolean   @default(false)
   publishedToNationalAt     DateTime?
   unpublishedFromNationalAt DateTime?
@@ -256,7 +251,7 @@ model DocumentText {
   extractedText   String
   extractionState String   @default("completed")
   extractedAt     DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @default(now()) @updatedAt
 
   @@index([documentId])
 }
@@ -306,7 +301,7 @@ model ChatSession {
   scopeLabel String?
   title      String?
   createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  updatedAt  DateTime  @default(now()) @updatedAt
   endedAt    DateTime?
 
   user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -400,8 +395,6 @@ model UserInviteToken {
 
   @@index([userId, expiresAt])
 }
-
-// Auth.js Prisma adapter models
 
 model Account {
   userId            String
