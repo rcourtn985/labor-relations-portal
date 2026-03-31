@@ -1,18 +1,27 @@
 import { prisma } from "@/lib/prisma";
 
 async function main() {
-  // Create a default system user (avoids ownerUserId problems later)
   await prisma.user.upsert({
     where: { id: "system" },
-    update: {},
+    update: {
+      email: "system@local",
+      name: "System",
+      firstName: "System",
+      lastName: "Admin",
+      globalRole: "SYSTEM_ADMIN",
+      accountStatus: "ACTIVE",
+    },
     create: {
       id: "system",
       email: "system@local",
       name: "System",
+      firstName: "System",
+      lastName: "Admin",
+      globalRole: "SYSTEM_ADMIN",
+      accountStatus: "ACTIVE",
     },
   });
 
-  // Central Intelligence system KB
   await prisma.knowledgeBase.upsert({
     where: { id: "central" },
     update: {},
@@ -25,7 +34,6 @@ async function main() {
     },
   });
 
-  // CBAs Shared system KB
   await prisma.knowledgeBase.upsert({
     where: { id: "cbas_shared" },
     update: {},

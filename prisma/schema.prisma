@@ -1,10 +1,3 @@
-// Prisma schema for Labor Relations Central Intelligence
-// - Per-user private KBs
-// - System KBs (Central, All CBAs)
-// - Document metadata for shared CBA uploads
-// - Original file storage metadata
-// - Extracted text storage for exact agreement search
-
 generator client {
   provider = "prisma-client-js"
   output   = "../lib/generated/prisma"
@@ -22,14 +15,143 @@ enum KBVisibility {
   SYSTEM
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String?  @unique
-  name      String?
-  createdAt DateTime @default(now())
+enum GlobalRole {
+  SYSTEM_ADMIN
+  STANDARD
+}
 
-  knowledgeBases KnowledgeBase[]
-  documents      Document[]
+enum AccountStatus {
+  INVITED
+  ACTIVE
+  DENIED
+  DISABLED
+}
+
+enum ChapterMembershipRole {
+  CHAPTER_ADMIN
+  USER
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum ChatMessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+}
+
+enum SearchType {
+  AGREEMENT_NAME
+  AGREEMENT_CONTENT
+  NATIONAL_DATABASE
+  CHAT
+  ADMIN
+  OTHER
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  name          String?
+  firstName     String?
+  lastName      String?
+  phone         String?
+  passwordHash  String?
+  passwordSetAt DateTime?
+  globalRole    GlobalRole    @default(STANDARD)
+  accountStatus AccountStatus @default(INVITED)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  accounts Account[]
+  sessions Session[]
+
+  chapterMemberships ChapterMembership[]
+
+  reviewedAccessRequests AccessRequest[] @relation("AccessRequestReviewedBy")
+
+  knowledgeBases KnowledgeBase[] @relation("KnowledgeBaseOwner")
+  documents      Document[]      @relation("DocumentOwner")
+
+  createdDocuments     Document[] @relation("DocumentCreatedBy")
+  updatedDocuments     Document[] @relation("DocumentUpdatedBy")
+  publishedDocuments   Document[] @relation("DocumentPublishedBy")
+  unpublishedDocuments Document[] @relation("DocumentUnpublishedBy")
+  softDeletedDocuments Document[] @relation("DocumentDeletedBy")
+
+  agreementDownloadEvents AgreementDownloadEvent[]
+  searchEvents            SearchEvent[]
+  chatSessions            ChatSession[]
+  chatMessages            ChatMessage[]            @relation("ChatMessageUser")
+  systemUsageEvents       SystemUsageEvent[]
+  passwordResetTokens     PasswordResetToken[]
+  userInviteTokens        UserInviteToken[]
+}
+
+model Chapter {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  code      String?   @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships             ChapterMembership[]
+  requestedAccesses       AccessRequest[]
+  knowledgeBases          KnowledgeBase[]
+  documents               Document[]
+  agreementDownloadEvents AgreementDownloadEvent[]
+  searchEvents            SearchEvent[]
+  chatSessions            ChatSession[]
+  systemUsageEvents       SystemUsageEvent[]
+}
+
+model ChapterMembership {
+  id        String                @id @default(cuid())
+  userId    String
+  chapterId String
+  role      ChapterMembershipRole
+  isActive  Boolean               @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chapterId])
+  @@index([chapterId, role, isActive])
+  @@index([userId, role, isActive])
+}
+
+model AccessRequest {
+  id                 String              @id @default(cuid())
+  firstName          String
+  lastName           String
+  email              String
+  phone              String?
+  requestedChapterId String?
+  comments           String?
+  status             AccessRequestStatus @default(PENDING)
+  submittedAt        DateTime            @default(now())
+  reviewedAt         DateTime?
+  reviewedByUserId   String?
+  denialReason       String?
+  adminNotes         String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  requestedChapter Chapter? @relation(fields: [requestedChapterId], references: [id], onDelete: SetNull)
+  reviewedByUser   User?    @relation("AccessRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, submittedAt])
+  @@index([email])
+  @@index([requestedChapterId])
 }
 
 model KnowledgeBase {
@@ -38,74 +160,282 @@ model KnowledgeBase {
   vectorStoreId String
   visibility    KBVisibility @default(PRIVATE)
 
-  // null = system KB (Central, All CBAs)
-  ownerUserId   String?
-  ownerUser     User?        @relation(fields: [ownerUserId], references: [id])
+  ownerUserId String?
+  ownerUser   User?   @relation("KnowledgeBaseOwner", fields: [ownerUserId], references: [id])
 
-  createdAt     DateTime     @default(now())
+  chapterId String?
+  chapter   Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
 
-  documents     Document[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
+  documents Document[]
+
+  @@unique([ownerUserId, name])
   @@index([ownerUserId])
   @@index([visibility])
-  @@unique([ownerUserId, name])
+  @@index([chapterId])
 }
 
 model Document {
-  id          String        @id @default(cuid())
+  id String @id @default(cuid())
 
+  // Transitional legacy owner linkage used by current code.
   ownerUserId String
-  ownerUser   User          @relation(fields: [ownerUserId], references: [id])
+  ownerUser   User   @relation("DocumentOwner", fields: [ownerUserId], references: [id])
 
-  kbId        String
-  kb          KnowledgeBase @relation(fields: [kbId], references: [id])
+  kbId String
+  kb   KnowledgeBase @relation(fields: [kbId], references: [id])
+
+  // Durable chapter ownership for agreement control.
+  chapterId    String?
+  chapterOwner Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+
+  // Audit actors
+  createdByUserId                 String?
+  updatedByUserId                 String?
+  publishedToNationalByUserId     String?
+  unpublishedFromNationalByUserId String?
+  deletedByUserId                 String?
+
+  createdByUser                 User? @relation("DocumentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser                 User? @relation("DocumentUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  publishedToNationalByUser     User? @relation("DocumentPublishedBy", fields: [publishedToNationalByUserId], references: [id], onDelete: SetNull)
+  unpublishedFromNationalByUser User? @relation("DocumentUnpublishedBy", fields: [unpublishedFromNationalByUserId], references: [id], onDelete: SetNull)
+  deletedByUser                 User? @relation("DocumentDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
 
   openaiFileId String
   filename     String
-  createdAt    DateTime     @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
-  // CBA metadata (optional; captured when a user marks an upload as a CBA)
-  isCba        Boolean      @default(false)
+  isCba Boolean @default(false)
 
-  // New metadata
-  chapter      String?
-  cbaType      String?
+  // Retained temporarily for current app compatibility.
+  chapter String?
 
-  // Existing metadata (state can hold comma-separated list for "State(s)" MVP)
-  state        String?
-  localUnion   String?
-  employer     String?
+  cbaType       String?
+  state         String?
+  localUnion    String?
+  employer      String?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
 
-  // Whether this document was also added to the system "All CBAs" KB
-  sharedToCbas Boolean      @default(false)
+  // National publication state
+  sharedToCbas              Boolean   @default(false)
+  publishedToNationalAt     DateTime?
+  unpublishedFromNationalAt DateTime?
 
-  // Original file storage metadata
   storageProvider String?
   storageKey      String?
   mimeType        String?
   fileSizeBytes   Int?
   sha256          String?
 
-  textContent  DocumentText?
+  textContent DocumentText?
 
+  agreementDownloadEvents AgreementDownloadEvent[]
+  chatRetrievalEvents     ChatRetrievalEvent[]
+
+  @@unique([kbId, filename])
   @@index([kbId])
   @@index([ownerUserId])
   @@index([isCba])
-
-  // Prevent duplicate filenames within a KB
-  @@unique([kbId, filename])
+  @@index([chapterId])
+  @@index([sharedToCbas])
+  @@index([deletedAt])
 }
 
 model DocumentText {
-  id              String   @id @default(cuid())
-  documentId      String   @unique
-  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  documentId String   @unique
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   extractedText   String
   extractionState String   @default("completed")
   extractedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([documentId])
+}
+
+model AgreementDownloadEvent {
+  id            String   @id @default(cuid())
+  agreementId   String
+  userId        String?
+  chapterId     String?
+  sourceContext String?
+  downloadedAt  DateTime @default(now())
+  ipAddress     String?
+  userAgent     String?
+
+  agreement Document @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  chapter   Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+
+  @@index([agreementId, downloadedAt])
+  @@index([userId, downloadedAt])
+  @@index([chapterId, downloadedAt])
+}
+
+model SearchEvent {
+  id           String     @id @default(cuid())
+  userId       String?
+  chapterId    String?
+  searchType   SearchType @default(OTHER)
+  query        String
+  resultsCount Int?
+  createdAt    DateTime   @default(now())
+  ipAddress    String?
+  userAgent    String?
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  chapter Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([chapterId, createdAt])
+}
+
+model ChatSession {
+  id         String    @id @default(cuid())
+  userId     String?
+  chapterId  String?
+  scopeLabel String?
+  title      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  endedAt    DateTime?
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  chapter Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+
+  messages ChatMessage[]
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([chapterId, createdAt])
+}
+
+model ChatMessage {
+  id               String          @id @default(cuid())
+  sessionId        String
+  userId           String?
+  role             ChatMessageRole
+  content          String
+  model            String?
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  createdAt        DateTime        @default(now())
+
+  chatSession ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user        User?       @relation("ChatMessageUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  retrievalEvents ChatRetrievalEvent[]
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model ChatRetrievalEvent {
+  id          String   @id @default(cuid())
+  messageId   String
+  agreementId String?
+  sourceLabel String?
+  sourceType  String?
+  score       Float?
+  createdAt   DateTime @default(now())
+
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  agreement Document?   @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([agreementId])
+}
+
+model SystemUsageEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  chapterId String?
+  eventType String
+  path      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  chapter Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@index([chapterId, createdAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model UserInviteToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+// Auth.js Prisma adapter models
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
