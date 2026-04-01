@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuth, isSystemAdmin, getActiveChapterAdminChapterIds } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -14,6 +15,10 @@ function parseDate(value: unknown): Date | null {
   if (!value || typeof value !== "string" || !value.trim()) return null;
   const d = new Date(value.trim());
   return isNaN(d.getTime()) ? null : d;
+}
+
+function normalizeChapterKey(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 export async function GET(_req: Request, context: RouteContext) {
@@ -94,6 +99,27 @@ export async function GET(_req: Request, context: RouteContext) {
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
+    const session = await requireAuth();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const canManageAsSystemAdmin = isSystemAdmin(session);
+    const chapterAdminIds = getActiveChapterAdminChapterIds(session);
+    const chapterAdminNames = (session.user.memberships ?? [])
+      .filter(
+        (membership: { role: "CHAPTER_ADMIN" | "USER" }) =>
+          membership.role === "CHAPTER_ADMIN"
+      )
+      .map((membership: { chapterName: string }) =>
+        normalizeChapterKey(membership.chapterName)
+      )
+      .filter(Boolean);
+
+    if (!canManageAsSystemAdmin && chapterAdminIds.length === 0) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
     const { id } = await context.params;
 
     if (!id) {
@@ -122,11 +148,31 @@ export async function PATCH(req: Request, context: RouteContext) {
         filename: true,
         openaiFileId: true,
         isCba: true,
+        chapter: true,
       },
     });
 
     if (!existing) {
       return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
+    }
+
+    if (!canManageAsSystemAdmin) {
+      const allowedChapterKeys = new Set(chapterAdminNames);
+
+      const existingChapterKey = normalizeChapterKey(existing.chapter);
+      const requestedChapterKey = normalizeChapterKey(chapter);
+
+      if (
+        !existingChapterKey ||
+        !requestedChapterKey ||
+        !allowedChapterKeys.has(existingChapterKey) ||
+        !allowedChapterKeys.has(requestedChapterKey)
+      ) {
+        return NextResponse.json(
+          { error: "Chapter Admins can only edit agreements for assigned chapters." },
+          { status: 403 }
+        );
+      }
     }
 
     await prisma.document.update({
@@ -267,6 +313,27 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
+    const session = await requireAuth();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const canManageAsSystemAdmin = isSystemAdmin(session);
+    const chapterAdminIds = getActiveChapterAdminChapterIds(session);
+    const chapterAdminNames = (session.user.memberships ?? [])
+      .filter(
+        (membership: { role: "CHAPTER_ADMIN" | "USER" }) =>
+          membership.role === "CHAPTER_ADMIN"
+      )
+      .map((membership: { chapterName: string }) =>
+        normalizeChapterKey(membership.chapterName)
+      )
+      .filter(Boolean);
+
+    if (!canManageAsSystemAdmin && chapterAdminIds.length === 0) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
     const { id } = await context.params;
 
     if (!id) {
@@ -282,11 +349,22 @@ export async function DELETE(_req: Request, context: RouteContext) {
         isCba: true,
         storageProvider: true,
         storageKey: true,
+        chapter: true,
       },
     });
 
     if (!doc) {
       return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
+    }
+
+    if (!canManageAsSystemAdmin) {
+      const allowedChapterKeys = new Set(chapterAdminNames);
+      if (!allowedChapterKeys.has(normalizeChapterKey(doc.chapter))) {
+        return NextResponse.json(
+          { error: "Chapter Admins can only delete agreements for assigned chapters." },
+          { status: 403 }
+        );
+      }
     }
 
     // Delete shared copy in national KB if it exists

@@ -22,6 +22,19 @@ type FilterOption = {
   label: string;
 };
 
+type SessionMembership = {
+  chapterId: string;
+  chapterName: string;
+  role: "CHAPTER_ADMIN" | "USER";
+};
+
+type ViewerPermissions = {
+  isSystemAdmin: boolean;
+  isChapterAdmin: boolean;
+  canManageAgreements: boolean;
+  managedChapterNames: string[];
+};
+
 type SearchResultRow = {
   id: string;
   agreementName: string;
@@ -74,6 +87,21 @@ function normalizeValue(value: string | null | undefined) {
   return (value ?? "").trim();
 }
 
+function normalizeChapterKey(value: string | null | undefined) {
+  return normalizeValue(value).toLowerCase();
+}
+
+function isManagedChapter(
+  chapterName: string,
+  managedChapterNames: string[]
+): boolean {
+  const key = normalizeChapterKey(chapterName);
+  if (!key) return false;
+  return managedChapterNames.some(
+    (managedChapterName) => normalizeChapterKey(managedChapterName) === key
+  );
+}
+
 function splitCommaSeparated(value: string | null | undefined): string[] {
   return normalizeValue(value)
     .split(",")
@@ -124,6 +152,14 @@ const requiredMark = (
 );
 
 export default function ManageAgreementsPageClient() {
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
+  const [permissions, setPermissions] = useState<ViewerPermissions>({
+    isSystemAdmin: false,
+    isChapterAdmin: false,
+    canManageAgreements: false,
+    managedChapterNames: [],
+  });
+
   const [kbIndex, setKbIndex] = useState<KBIndexResponse | null>(null);
   const [loadingCollections, setLoadingCollections] = useState(false);
 
@@ -187,6 +223,59 @@ export default function ManageAgreementsPageClient() {
   const [isDeletingAgreementId, setIsDeletingAgreementId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPermissions() {
+      try {
+        const res = await fetch("/api/auth/session");
+        const data = (await res.json()) as {
+          user?: {
+            globalRole?: "SYSTEM_ADMIN" | "STANDARD";
+            memberships?: SessionMembership[];
+          };
+        };
+
+        if (cancelled) return;
+
+        const memberships = (data?.user?.memberships ?? []) as SessionMembership[];
+        const isSystemAdmin = data?.user?.globalRole === "SYSTEM_ADMIN";
+        const isChapterAdmin = memberships.some(
+          (membership) => membership.role === "CHAPTER_ADMIN"
+        );
+        const managedChapterNames = memberships
+          .filter((membership) => membership.role === "CHAPTER_ADMIN")
+          .map((membership) => normalizeValue(membership.chapterName))
+          .filter(Boolean);
+
+        setPermissions({
+          isSystemAdmin,
+          isChapterAdmin,
+          canManageAgreements: isSystemAdmin || isChapterAdmin,
+          managedChapterNames: [...new Set(managedChapterNames)],
+        });
+      } catch {
+        if (cancelled) return;
+        setPermissions({
+          isSystemAdmin: false,
+          isChapterAdmin: false,
+          canManageAgreements: false,
+          managedChapterNames: [],
+        });
+      } finally {
+        if (!cancelled) {
+          setPermissionsLoading(false);
+        }
+      }
+    }
+
+    void loadPermissions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function loadCollections() {
     const res = await fetch("/api/kb/list");
@@ -299,7 +388,11 @@ export default function ManageAgreementsPageClient() {
   }
 
   function openUploadModal() {
+    if (!permissions.canManageAgreements) return;
     resetUploadForm();
+    if (!permissions.isSystemAdmin && permissions.managedChapterNames.length > 0) {
+      setChapter(permissions.managedChapterNames[0]);
+    }
     setIsUploadModalOpen(true);
   }
 
@@ -345,6 +438,11 @@ export default function ManageAgreementsPageClient() {
   }
 
   async function uploadAgreement() {
+    if (!permissions.canManageAgreements) {
+      setUploadError("You do not have permission to upload agreements.");
+      return;
+    }
+
     setUploadError(null);
     setUploadStatus(null);
 
@@ -360,6 +458,14 @@ export default function ManageAgreementsPageClient() {
 
     if (!chapter.trim()) {
       setUploadError("Please enter a Chapter.");
+      return;
+    }
+    if (
+      permissions.isChapterAdmin &&
+      !permissions.isSystemAdmin &&
+      !isManagedChapter(chapter, permissions.managedChapterNames)
+    ) {
+      setUploadError("Chapter Admins can only upload agreements for assigned chapters.");
       return;
     }
 
@@ -437,6 +543,7 @@ export default function ManageAgreementsPageClient() {
   }
 
   function openEditModal(row: AgreementRow) {
+    if (!permissions.canManageAgreements) return;
     setEditingAgreementId(row.id);
     setEditAgreementName(row.agreementName);
     setEditChapter(row.chapter === "—" ? "" : row.chapter);
@@ -457,6 +564,11 @@ export default function ManageAgreementsPageClient() {
   }
 
   async function saveEdit() {
+    if (!permissions.canManageAgreements) {
+      setEditError("You do not have permission to edit agreements.");
+      return;
+    }
+
     setEditError(null);
     setEditStatus(null);
 
@@ -472,6 +584,14 @@ export default function ManageAgreementsPageClient() {
 
     if (!editChapter.trim()) {
       setEditError("Please enter a Chapter.");
+      return;
+    }
+    if (
+      permissions.isChapterAdmin &&
+      !permissions.isSystemAdmin &&
+      !isManagedChapter(editChapter, permissions.managedChapterNames)
+    ) {
+      setEditError("Chapter Admins can only edit agreements for assigned chapters.");
       return;
     }
 
@@ -585,6 +705,11 @@ export default function ManageAgreementsPageClient() {
   }
 
   async function deleteAgreement(row: AgreementRow) {
+    if (!permissions.canManageAgreements) {
+      setError("You do not have permission to delete agreements.");
+      return;
+    }
+
     const confirmed = window.confirm(
       `Delete "${row.agreementName}"?\n\nThis will permanently remove the agreement and its file from the database. This cannot be undone.`
     );
@@ -634,8 +759,8 @@ export default function ManageAgreementsPageClient() {
       if (!res.ok) {
         throw new Error(data?.error ?? "Search failed.");
       }
-
-      const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
+      
+     const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
         (row) => ({
           id: row.id,
           agreementName: row.agreementName || "(untitled agreement)",
@@ -708,6 +833,20 @@ export default function ManageAgreementsPageClient() {
     [allAgreementRows]
   );
 
+  const allowedChapterOptions = useMemo(() => {
+    if (permissions.isSystemAdmin) return chapterOptions;
+
+    const managedKeys = new Set(
+      permissions.managedChapterNames.map((chapterName) =>
+        normalizeChapterKey(chapterName)
+      )
+    );
+
+    return chapterOptions.filter((option) =>
+      managedKeys.has(normalizeChapterKey(option.value))
+    );
+  }, [chapterOptions, permissions.isSystemAdmin, permissions.managedChapterNames]);
+
   const localUnionOptions = useMemo(
     () =>
       toOptionArray(
@@ -738,7 +877,48 @@ export default function ManageAgreementsPageClient() {
     [allAgreementRows]
   );
 
-  const baseRows = searchRows ?? allAgreementRows;
+  const scopedRows = useMemo(() => {
+    if (permissions.isSystemAdmin) return allAgreementRows;
+    if (!permissions.isChapterAdmin) return allAgreementRows;
+
+    const managedKeys = new Set(
+      permissions.managedChapterNames.map((chapterName) =>
+        normalizeChapterKey(chapterName)
+      )
+    );
+
+    return allAgreementRows.filter((row) =>
+      managedKeys.has(normalizeChapterKey(row.chapter))
+    );
+  }, [
+    allAgreementRows,
+    permissions.isSystemAdmin,
+    permissions.isChapterAdmin,
+    permissions.managedChapterNames,
+  ]);
+
+  const baseRows = useMemo(() => {
+    const source = searchRows ?? scopedRows;
+    if (permissions.isSystemAdmin || !permissions.isChapterAdmin) {
+      return source;
+    }
+
+    const managedKeys = new Set(
+      permissions.managedChapterNames.map((chapterName) =>
+        normalizeChapterKey(chapterName)
+      )
+    );
+
+    return source.filter((row) =>
+      managedKeys.has(normalizeChapterKey(row.chapter))
+    );
+  }, [
+    searchRows,
+    scopedRows,
+    permissions.isSystemAdmin,
+    permissions.isChapterAdmin,
+    permissions.managedChapterNames,
+  ]);
 
   const filteredAgreementRows = useMemo(() => {
     const nameNeedle = agreementNameQuery.trim().toLowerCase();
@@ -804,7 +984,17 @@ export default function ManageAgreementsPageClient() {
 
   return (
     <div style={styles.page}>
-      <ManageAgreementsHero onOpenUploadModal={openUploadModal} />
+      <ManageAgreementsHero
+        onOpenUploadModal={openUploadModal}
+        canManageAgreements={!permissionsLoading && permissions.canManageAgreements}
+      />
+
+      {!permissionsLoading && !permissions.canManageAgreements ? (
+        <div style={styles.errorBox}>
+          <b>Read-only access:</b> Upload, edit, and delete are restricted to
+          System Admins and Chapter Admins.
+        </div>
+      ) : null}
 
       {uploadStatus && <div style={styles.successBox}>{uploadStatus}</div>}
 
@@ -835,11 +1025,13 @@ export default function ManageAgreementsPageClient() {
             filesLoading={filesLoading || loadingCollections}
             searchLoading={searchLoading}
             searchError={searchError}
-            agreementRows={allAgreementRows}
+            agreementRows={scopedRows}
             filteredAgreementRows={statusFilteredRows}
             agreementNameQuery={agreementNameQuery}
             contentSearchQuery={contentSearchQuery}
-            chapterOptions={chapterOptions}
+            chapterOptions={
+              permissions.isSystemAdmin ? chapterOptions : allowedChapterOptions
+            }
             localUnionOptions={localUnionOptions}
             agreementTypeOptions={agreementTypeOptions}
             stateOptions={stateOptions}
@@ -868,6 +1060,7 @@ export default function ManageAgreementsPageClient() {
             onOpenEditModal={openEditModal}
             onDeleteAgreement={deleteAgreement}
             isDeletingAgreementId={isDeletingAgreementId}
+            canManageAgreements={!permissionsLoading && permissions.canManageAgreements}
           />
         </div>
 
@@ -1073,6 +1266,15 @@ export default function ManageAgreementsPageClient() {
         dragActive={dragActive}
         uploadStatus={uploadStatus}
         uploadError={uploadError}
+        chapterOptions={
+          permissions.isSystemAdmin
+            ? chapterOptions.map((option) => option.value)
+            : permissions.managedChapterNames
+        }
+        chapterLocked={
+          !permissions.isSystemAdmin &&
+          permissions.managedChapterNames.length === 1
+        }
         fileInputRef={fileInputRef}
         onClose={closeUploadModal}
         onAgreementNameChange={setAgreementName}
@@ -1131,12 +1333,28 @@ export default function ManageAgreementsPageClient() {
 
                 <div>
                   <label style={labelStyle}>Chapter {requiredMark}</label>
-                  <input
-                    type="text"
-                    value={editChapter}
-                    onChange={(e) => setEditChapter(e.target.value)}
-                    style={styles.input}
-                  />
+                  {!permissions.isSystemAdmin &&
+                  permissions.managedChapterNames.length === 1 ? (
+                    <input type="text" value={editChapter} style={styles.input} disabled />
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        list="edit-chapter-options"
+                        value={editChapter}
+                        onChange={(e) => setEditChapter(e.target.value)}
+                        style={styles.input}
+                      />
+                      <datalist id="edit-chapter-options">
+                        {(permissions.isSystemAdmin
+                          ? chapterOptions.map((option) => option.value)
+                          : permissions.managedChapterNames
+                        ).map((option) => (
+                          <option key={option} value={option} />
+                        ))}
+                      </datalist>
+                    </>
+                  )}
                 </div>
 
                 <div>

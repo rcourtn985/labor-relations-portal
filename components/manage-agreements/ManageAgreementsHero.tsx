@@ -4,10 +4,12 @@ import { manageAgreementsStyles as styles } from "./styles";
 
 type ManageAgreementsHeroProps = {
   onOpenUploadModal: () => void;
+  canManageAgreements?: boolean;
 };
 
 export default function ManageAgreementsHero({
   onOpenUploadModal,
+  canManageAgreements = true,
 }: ManageAgreementsHeroProps) {
   return (
     <div style={styles.hero}>
@@ -47,9 +49,11 @@ export default function ManageAgreementsHero({
             alignItems: "center",
           }}
         >
-          <button onClick={onOpenUploadModal} style={styles.primaryBtn}>
-            Upload Agreement
-          </button>
+          {canManageAgreements ? (
+            <button onClick={onOpenUploadModal} style={styles.primaryBtn}>
+              Upload Agreement
+            </button>
+          ) : null}
 
           <a href="/chat" style={{ textDecoration: "none" }}>
             <button

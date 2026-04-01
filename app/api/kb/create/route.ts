@@ -4,6 +4,11 @@ import { toFile } from "openai/uploads";
 import { prisma } from "@/lib/prisma";
 import { storeOriginalFile } from "@/lib/storage";
 import { extractTextFromFile } from "@/lib/text-extraction";
+import {
+  getActiveChapterAdminChapterIds,
+  isSystemAdmin,
+  requireAuth,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -88,6 +93,28 @@ type PreparedDocument = {
 
 export async function POST(req: Request) {
   try {
+    const session = await requireAuth();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const canManageAsSystemAdmin = isSystemAdmin(session);
+    const chapterAdminIds = getActiveChapterAdminChapterIds(session);
+    const chapterAdminNames = (session.user.memberships ?? [])
+      .filter(
+        (membership: { role: "CHAPTER_ADMIN" | "USER" }) =>
+          membership.role === "CHAPTER_ADMIN"
+      )
+      .map(
+        (membership: { chapterName: string }) =>
+          membership.chapterName.trim().toLowerCase()
+      )
+      .filter(Boolean);
+
+    if (!canManageAsSystemAdmin && chapterAdminIds.length === 0) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY missing." },
@@ -113,6 +140,18 @@ export async function POST(req: Request) {
     const state = getString(formData, "state")?.trim() || null;
     const effectiveFrom = parseDate(getString(formData, "effectiveFrom"));
     const effectiveTo = parseDate(getString(formData, "effectiveTo"));
+
+    if (!canManageAsSystemAdmin) {
+      const allowedChapterNames = new Set(chapterAdminNames);
+      const chapterKey = chapter?.trim().toLowerCase() ?? "";
+
+      if (!chapterKey || !allowedChapterNames.has(chapterKey)) {
+        return NextResponse.json(
+          { error: "Chapter Admins can only upload agreements for assigned chapters." },
+          { status: 403 }
+        );
+      }
+    }
 
     const uploadedFiles = getFiles(formData, "files");
 

@@ -19,6 +19,8 @@ type UploadAgreementModalProps = {
   dragActive: boolean;
   uploadStatus: string | null;
   uploadError: string | null;
+  chapterOptions: string[];
+  chapterLocked: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onClose: () => void;
   onAgreementNameChange: (value: string) => void;
@@ -110,6 +112,8 @@ export default function UploadAgreementModal({
   dragActive,
   uploadStatus,
   uploadError,
+  chapterOptions,
+  chapterLocked,
   fileInputRef,
   onClose,
   onAgreementNameChange,
@@ -296,12 +300,25 @@ export default function UploadAgreementModal({
               <label style={labelStyle}>
                 Chapter {requiredMark}
               </label>
-              <input
-                value={chapter}
-                onChange={(e) => onChapterChange(e.target.value)}
-                style={styles.input}
-                disabled={isExtracting}
-              />
+              {chapterLocked ? (
+                <input value={chapter} style={styles.input} disabled />
+              ) : (
+                <>
+                  <input
+                    list="chapter-options"
+                    value={chapter}
+                    onChange={(e) => onChapterChange(e.target.value)}
+                    style={styles.input}
+                    placeholder="e.g. Southern Chapter"
+                    disabled={isExtracting}
+                  />
+                  <datalist id="chapter-options">
+                    {chapterOptions.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
+                </>
+              )}
             </div>
 
             <div>

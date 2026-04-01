@@ -42,6 +42,7 @@ type AgreementDatabaseCardProps = {
   onOpenEditModal: (row: AgreementRow) => void;
   onDeleteAgreement: (row: AgreementRow) => void;
   isDeletingAgreementId: string | null;
+  canManageAgreements?: boolean;
 };
 
 type AgreementStatus = "active" | "expired" | "upcoming";
@@ -141,6 +142,7 @@ export default function AgreementDatabaseCard({
   onOpenEditModal,
   onDeleteAgreement,
   isDeletingAgreementId,
+  canManageAgreements = true,
 }: AgreementDatabaseCardProps) {
   return (
     <div
@@ -477,7 +479,7 @@ export default function AgreementDatabaseCard({
                 <th style={styles.th}>States</th>
                 <th style={styles.th}>National Database</th>
                 <th style={styles.th}>Uploaded</th>
-                <th style={styles.th}>Actions</th>
+                {canManageAgreements ? <th style={styles.th}>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -533,36 +535,38 @@ export default function AgreementDatabaseCard({
                         ? new Date(row.uploadedAt * 1000).toLocaleString()
                         : ""}
                     </td>
-                    <td style={styles.td}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button
-                          type="button"
-                          onClick={() => onOpenEditModal(row)}
-                          disabled={isDeleting}
-                          style={{
-                            ...styles.subtleBtn,
-                            ...(isDeleting ? styles.btnDisabled : null),
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteAgreement(row)}
-                          disabled={isDeleting}
-                          style={{
-                            ...styles.subtleBtn,
-                            ...(isDeleting ? styles.btnDisabled : null),
-                            color: isDeleting ? undefined : "#991b1b",
-                            borderColor: isDeleting
-                              ? undefined
-                              : "rgba(185,28,28,0.25)",
-                          }}
-                        >
-                          {isDeleting ? "Deleting…" : "Delete"}
-                        </button>
-                      </div>
-                    </td>
+                    {canManageAgreements ? (
+                      <td style={styles.td}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => onOpenEditModal(row)}
+                            disabled={isDeleting}
+                            style={{
+                              ...styles.subtleBtn,
+                              ...(isDeleting ? styles.btnDisabled : null),
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteAgreement(row)}
+                            disabled={isDeleting}
+                            style={{
+                              ...styles.subtleBtn,
+                              ...(isDeleting ? styles.btnDisabled : null),
+                              color: isDeleting ? undefined : "#991b1b",
+                              borderColor: isDeleting
+                                ? undefined
+                                : "rgba(185,28,28,0.25)",
+                            }}
+                          >
+                            {isDeleting ? "Deleting…" : "Delete"}
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}

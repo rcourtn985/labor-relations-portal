@@ -1,0 +1,809 @@
+diff --git a/app/api/agreements/[id]/route.ts b/app/api/agreements/[id]/route.ts
+index 83164f3..d244ab2 100644
+--- a/app/api/agreements/[id]/route.ts
++++ b/app/api/agreements/[id]/route.ts
+@@ -1,4 +1,5 @@
+ import { NextResponse } from "next/server";
++import { requireAuth, isSystemAdmin, getActiveChapterAdminChapterIds } from "@/lib/auth";
+ import { prisma } from "@/lib/prisma";
+ 
+ export const runtime = "nodejs";
+@@ -16,6 +17,10 @@ function parseDate(value: unknown): Date | null {
+   return isNaN(d.getTime()) ? null : d;
+ }
+ 
++function normalizeChapterKey(value: string | null | undefined): string {
++  return (value ?? "").trim().toLowerCase();
++}
++
+ export async function GET(_req: Request, context: RouteContext) {
+   try {
+     const { id } = await context.params;
+@@ -94,6 +99,27 @@ export async function GET(_req: Request, context: RouteContext) {
+ 
+ export async function PATCH(req: Request, context: RouteContext) {
+   try {
++    const session = await requireAuth();
++    if (!session) {
++      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
++    }
++
++    const canManageAsSystemAdmin = isSystemAdmin(session);
++    const chapterAdminIds = getActiveChapterAdminChapterIds(session);
++    const chapterAdminNames = (session.user.memberships ?? [])
++      .filter(
++        (membership: { role: "CHAPTER_ADMIN" | "USER" }) =>
++          membership.role === "CHAPTER_ADMIN"
++      )
++      .map((membership: { chapterName: string }) =>
++        normalizeChapterKey(membership.chapterName)
++      )
++      .filter(Boolean);
++
++    if (!canManageAsSystemAdmin && chapterAdminIds.length === 0) {
++      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
++    }
++
+     const { id } = await context.params;
+ 
+     if (!id) {
+@@ -122,6 +148,7 @@ export async function PATCH(req: Request, context: RouteContext) {
+         filename: true,
+         openaiFileId: true,
+         isCba: true,
++        chapter: true,
+       },
+     });
+ 
+@@ -129,6 +156,25 @@ export async function PATCH(req: Request, context: RouteContext) {
+       return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
+     }
+ 
++    if (!canManageAsSystemAdmin) {
++      const allowedChapterKeys = new Set(chapterAdminNames);
++
++      const existingChapterKey = normalizeChapterKey(existing.chapter);
++      const requestedChapterKey = normalizeChapterKey(chapter);
++
++      if (
++        !existingChapterKey ||
++        !requestedChapterKey ||
++        !allowedChapterKeys.has(existingChapterKey) ||
++        !allowedChapterKeys.has(requestedChapterKey)
++      ) {
++        return NextResponse.json(
++          { error: "Chapter Admins can only edit agreements for assigned chapters." },
++          { status: 403 }
++        );
++      }
++    }
++
+     await prisma.document.update({
+       where: { id },
+       data: {
+@@ -267,6 +313,27 @@ export async function PATCH(req: Request, context: RouteContext) {
+ 
+ export async function DELETE(_req: Request, context: RouteContext) {
+   try {
++    const session = await requireAuth();
++    if (!session) {
++      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
++    }
++
++    const canManageAsSystemAdmin = isSystemAdmin(session);
++    const chapterAdminIds = getActiveChapterAdminChapterIds(session);
++    const chapterAdminNames = (session.user.memberships ?? [])
++      .filter(
++        (membership: { role: "CHAPTER_ADMIN" | "USER" }) =>
++          membership.role === "CHAPTER_ADMIN"
++      )
++      .map((membership: { chapterName: string }) =>
++        normalizeChapterKey(membership.chapterName)
++      )
++      .filter(Boolean);
++
++    if (!canManageAsSystemAdmin && chapterAdminIds.length === 0) {
++      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
++    }
++
+     const { id } = await context.params;
+ 
+     if (!id) {
+@@ -282,6 +349,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
+         isCba: true,
+         storageProvider: true,
+         storageKey: true,
++        chapter: true,
+       },
+     });
+ 
+@@ -289,6 +357,16 @@ export async function DELETE(_req: Request, context: RouteContext) {
+       return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
+     }
+ 
++    if (!canManageAsSystemAdmin) {
++      const allowedChapterKeys = new Set(chapterAdminNames);
++      if (!allowedChapterKeys.has(normalizeChapterKey(doc.chapter))) {
++        return NextResponse.json(
++          { error: "Chapter Admins can only delete agreements for assigned chapters." },
++          { status: 403 }
++        );
++      }
++    }
++
+     // Delete shared copy in national KB if it exists
+     if (doc.isCba && doc.filename) {
+       const sharedCopy = await prisma.document.findFirst({
+@@ -324,4 +402,4 @@ export async function DELETE(_req: Request, context: RouteContext) {
+     const message = e instanceof Error ? e.message : "Server error";
+     return NextResponse.json({ error: message }, { status: 500 });
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/app/api/kb/create/route.ts b/app/api/kb/create/route.ts
+index 322e148..35b83c2 100644
+--- a/app/api/kb/create/route.ts
++++ b/app/api/kb/create/route.ts
+@@ -4,6 +4,11 @@ import { toFile } from "openai/uploads";
+ import { prisma } from "@/lib/prisma";
+ import { storeOriginalFile } from "@/lib/storage";
+ import { extractTextFromFile } from "@/lib/text-extraction";
++import {
++  getActiveChapterAdminChapterIds,
++  isSystemAdmin,
++  requireAuth,
++} from "@/lib/auth";
+ 
+ export const runtime = "nodejs";
+ 
+@@ -88,6 +93,28 @@ type PreparedDocument = {
+ 
+ export async function POST(req: Request) {
+   try {
++    const session = await requireAuth();
++    if (!session) {
++      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
++    }
++
++    const canManageAsSystemAdmin = isSystemAdmin(session);
++    const chapterAdminIds = getActiveChapterAdminChapterIds(session);
++    const chapterAdminNames = (session.user.memberships ?? [])
++      .filter(
++        (membership: { role: "CHAPTER_ADMIN" | "USER" }) =>
++          membership.role === "CHAPTER_ADMIN"
++      )
++      .map(
++        (membership: { chapterName: string }) =>
++          membership.chapterName.trim().toLowerCase()
++      )
++      .filter(Boolean);
++
++    if (!canManageAsSystemAdmin && chapterAdminIds.length === 0) {
++      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
++    }
++
+     if (!process.env.OPENAI_API_KEY) {
+       return NextResponse.json(
+         { error: "OPENAI_API_KEY missing." },
+@@ -114,6 +141,18 @@ export async function POST(req: Request) {
+     const effectiveFrom = parseDate(getString(formData, "effectiveFrom"));
+     const effectiveTo = parseDate(getString(formData, "effectiveTo"));
+ 
++    if (!canManageAsSystemAdmin) {
++      const allowedChapterNames = new Set(chapterAdminNames);
++      const chapterKey = chapter?.trim().toLowerCase() ?? "";
++
++      if (!chapterKey || !allowedChapterNames.has(chapterKey)) {
++        return NextResponse.json(
++          { error: "Chapter Admins can only upload agreements for assigned chapters." },
++          { status: 403 }
++        );
++      }
++    }
++
+     const uploadedFiles = getFiles(formData, "files");
+ 
+     if (uploadedFiles.length === 0) {
+@@ -343,4 +382,4 @@ export async function POST(req: Request) {
+     const message = e instanceof Error ? e.message : "Server error";
+     return NextResponse.json({ error: message }, { status: 500 });
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/components/manage-agreements/AgreementDatabaseCard.tsx b/components/manage-agreements/AgreementDatabaseCard.tsx
+index 0dcf49b..5cf9034 100644
+--- a/components/manage-agreements/AgreementDatabaseCard.tsx
++++ b/components/manage-agreements/AgreementDatabaseCard.tsx
+@@ -42,6 +42,7 @@ type AgreementDatabaseCardProps = {
+   onOpenEditModal: (row: AgreementRow) => void;
+   onDeleteAgreement: (row: AgreementRow) => void;
+   isDeletingAgreementId: string | null;
++  canManageAgreements?: boolean;
+ };
+ 
+ type AgreementStatus = "active" | "expired" | "upcoming";
+@@ -141,6 +142,7 @@ export default function AgreementDatabaseCard({
+   onOpenEditModal,
+   onDeleteAgreement,
+   isDeletingAgreementId,
++  canManageAgreements = true,
+ }: AgreementDatabaseCardProps) {
+   return (
+     <div
+@@ -477,7 +479,7 @@ export default function AgreementDatabaseCard({
+                 <th style={styles.th}>States</th>
+                 <th style={styles.th}>National Database</th>
+                 <th style={styles.th}>Uploaded</th>
+-                <th style={styles.th}>Actions</th>
++                {canManageAgreements ? <th style={styles.th}>Actions</th> : null}
+               </tr>
+             </thead>
+             <tbody>
+@@ -533,36 +535,38 @@ export default function AgreementDatabaseCard({
+                         ? new Date(row.uploadedAt * 1000).toLocaleString()
+                         : ""}
+                     </td>
+-                    <td style={styles.td}>
+-                      <div style={{ display: "flex", gap: 6 }}>
+-                        <button
+-                          type="button"
+-                          onClick={() => onOpenEditModal(row)}
+-                          disabled={isDeleting}
+-                          style={{
+-                            ...styles.subtleBtn,
+-                            ...(isDeleting ? styles.btnDisabled : null),
+-                          }}
+-                        >
+-                          Edit
+-                        </button>
+-                        <button
+-                          type="button"
+-                          onClick={() => onDeleteAgreement(row)}
+-                          disabled={isDeleting}
+-                          style={{
+-                            ...styles.subtleBtn,
+-                            ...(isDeleting ? styles.btnDisabled : null),
+-                            color: isDeleting ? undefined : "#991b1b",
+-                            borderColor: isDeleting
+-                              ? undefined
+-                              : "rgba(185,28,28,0.25)",
+-                          }}
+-                        >
+-                          {isDeleting ? "Deleting…" : "Delete"}
+-                        </button>
+-                      </div>
+-                    </td>
++                    {canManageAgreements ? (
++                      <td style={styles.td}>
++                        <div style={{ display: "flex", gap: 6 }}>
++                          <button
++                            type="button"
++                            onClick={() => onOpenEditModal(row)}
++                            disabled={isDeleting}
++                            style={{
++                              ...styles.subtleBtn,
++                              ...(isDeleting ? styles.btnDisabled : null),
++                            }}
++                          >
++                            Edit
++                          </button>
++                          <button
++                            type="button"
++                            onClick={() => onDeleteAgreement(row)}
++                            disabled={isDeleting}
++                            style={{
++                              ...styles.subtleBtn,
++                              ...(isDeleting ? styles.btnDisabled : null),
++                              color: isDeleting ? undefined : "#991b1b",
++                              borderColor: isDeleting
++                                ? undefined
++                                : "rgba(185,28,28,0.25)",
++                            }}
++                          >
++                            {isDeleting ? "Deleting…" : "Delete"}
++                          </button>
++                        </div>
++                      </td>
++                    ) : null}
+                   </tr>
+                 );
+               })}
+@@ -572,4 +576,4 @@ export default function AgreementDatabaseCard({
+       </div>
+     </div>
+   );
+-}
++}
+\ No newline at end of file
+diff --git a/components/manage-agreements/ManageAgreementsHero.tsx b/components/manage-agreements/ManageAgreementsHero.tsx
+index b1ed742..75df602 100644
+--- a/components/manage-agreements/ManageAgreementsHero.tsx
++++ b/components/manage-agreements/ManageAgreementsHero.tsx
+@@ -4,10 +4,12 @@ import { manageAgreementsStyles as styles } from "./styles";
+ 
+ type ManageAgreementsHeroProps = {
+   onOpenUploadModal: () => void;
++  canManageAgreements?: boolean;
+ };
+ 
+ export default function ManageAgreementsHero({
+   onOpenUploadModal,
++  canManageAgreements = true,
+ }: ManageAgreementsHeroProps) {
+   return (
+     <div style={styles.hero}>
+@@ -47,9 +49,11 @@ export default function ManageAgreementsHero({
+             alignItems: "center",
+           }}
+         >
+-          <button onClick={onOpenUploadModal} style={styles.primaryBtn}>
+-            Upload Agreement
+-          </button>
++          {canManageAgreements ? (
++            <button onClick={onOpenUploadModal} style={styles.primaryBtn}>
++              Upload Agreement
++            </button>
++          ) : null}
+ 
+           <a href="/chat" style={{ textDecoration: "none" }}>
+             <button
+@@ -68,4 +72,4 @@ export default function ManageAgreementsHero({
+       </div>
+     </div>
+   );
+-}
++}
+\ No newline at end of file
+diff --git a/components/manage-agreements/ManageAgreementsPageClient.tsx b/components/manage-agreements/ManageAgreementsPageClient.tsx
+index 129bbd7..b95874e 100644
+--- a/components/manage-agreements/ManageAgreementsPageClient.tsx
++++ b/components/manage-agreements/ManageAgreementsPageClient.tsx
+@@ -22,6 +22,19 @@ type FilterOption = {
+   label: string;
+ };
+ 
++type SessionMembership = {
++  chapterId: string;
++  chapterName: string;
++  role: "CHAPTER_ADMIN" | "USER";
++};
++
++type ViewerPermissions = {
++  isSystemAdmin: boolean;
++  isChapterAdmin: boolean;
++  canManageAgreements: boolean;
++  managedChapterNames: string[];
++};
++
+ type SearchResultRow = {
+   id: string;
+   agreementName: string;
+@@ -74,6 +87,21 @@ function normalizeValue(value: string | null | undefined) {
+   return (value ?? "").trim();
+ }
+ 
++function normalizeChapterKey(value: string | null | undefined) {
++  return normalizeValue(value).toLowerCase();
++}
++
++function isManagedChapter(
++  chapterName: string,
++  managedChapterNames: string[]
++): boolean {
++  const key = normalizeChapterKey(chapterName);
++  if (!key) return false;
++  return managedChapterNames.some(
++    (managedChapterName) => normalizeChapterKey(managedChapterName) === key
++  );
++}
++
+ function splitCommaSeparated(value: string | null | undefined): string[] {
+   return normalizeValue(value)
+     .split(",")
+@@ -124,6 +152,14 @@ const requiredMark = (
+ );
+ 
+ export default function ManageAgreementsPageClient() {
++  const [permissionsLoading, setPermissionsLoading] = useState(true);
++  const [permissions, setPermissions] = useState<ViewerPermissions>({
++    isSystemAdmin: false,
++    isChapterAdmin: false,
++    canManageAgreements: false,
++    managedChapterNames: [],
++  });
++
+   const [kbIndex, setKbIndex] = useState<KBIndexResponse | null>(null);
+   const [loadingCollections, setLoadingCollections] = useState(false);
+ 
+@@ -188,6 +224,59 @@ export default function ManageAgreementsPageClient() {
+ 
+   const fileInputRef = useRef<HTMLInputElement | null>(null);
+ 
++  useEffect(() => {
++    let cancelled = false;
++
++    async function loadPermissions() {
++      try {
++        const res = await fetch("/api/auth/session");
++        const data = (await res.json()) as {
++          user?: {
++            globalRole?: "SYSTEM_ADMIN" | "STANDARD";
++            memberships?: SessionMembership[];
++          };
++        };
++
++        if (cancelled) return;
++
++        const memberships = (data?.user?.memberships ?? []) as SessionMembership[];
++        const isSystemAdmin = data?.user?.globalRole === "SYSTEM_ADMIN";
++        const isChapterAdmin = memberships.some(
++          (membership) => membership.role === "CHAPTER_ADMIN"
++        );
++        const managedChapterNames = memberships
++          .filter((membership) => membership.role === "CHAPTER_ADMIN")
++          .map((membership) => normalizeValue(membership.chapterName))
++          .filter(Boolean);
++
++        setPermissions({
++          isSystemAdmin,
++          isChapterAdmin,
++          canManageAgreements: isSystemAdmin || isChapterAdmin,
++          managedChapterNames: [...new Set(managedChapterNames)],
++        });
++      } catch {
++        if (cancelled) return;
++        setPermissions({
++          isSystemAdmin: false,
++          isChapterAdmin: false,
++          canManageAgreements: false,
++          managedChapterNames: [],
++        });
++      } finally {
++        if (!cancelled) {
++          setPermissionsLoading(false);
++        }
++      }
++    }
++
++    void loadPermissions();
++
++    return () => {
++      cancelled = true;
++    };
++  }, []);
++
+   async function loadCollections() {
+     const res = await fetch("/api/kb/list");
+     const data = (await res.json()) as KBIndexResponse;
+@@ -299,7 +388,11 @@ export default function ManageAgreementsPageClient() {
+   }
+ 
+   function openUploadModal() {
++    if (!permissions.canManageAgreements) return;
+     resetUploadForm();
++    if (!permissions.isSystemAdmin && permissions.managedChapterNames.length > 0) {
++      setChapter(permissions.managedChapterNames[0]);
++    }
+     setIsUploadModalOpen(true);
+   }
+ 
+@@ -345,6 +438,11 @@ export default function ManageAgreementsPageClient() {
+   }
+ 
+   async function uploadAgreement() {
++    if (!permissions.canManageAgreements) {
++      setUploadError("You do not have permission to upload agreements.");
++      return;
++    }
++
+     setUploadError(null);
+     setUploadStatus(null);
+ 
+@@ -362,6 +460,14 @@ export default function ManageAgreementsPageClient() {
+       setUploadError("Please enter a Chapter.");
+       return;
+     }
++    if (
++      permissions.isChapterAdmin &&
++      !permissions.isSystemAdmin &&
++      !isManagedChapter(chapter, permissions.managedChapterNames)
++    ) {
++      setUploadError("Chapter Admins can only upload agreements for assigned chapters.");
++      return;
++    }
+ 
+     if (!localUnion.trim()) {
+       setUploadError("Please enter a Local Union.");
+@@ -437,6 +543,7 @@ export default function ManageAgreementsPageClient() {
+   }
+ 
+   function openEditModal(row: AgreementRow) {
++    if (!permissions.canManageAgreements) return;
+     setEditingAgreementId(row.id);
+     setEditAgreementName(row.agreementName);
+     setEditChapter(row.chapter === "—" ? "" : row.chapter);
+@@ -457,6 +564,11 @@ export default function ManageAgreementsPageClient() {
+   }
+ 
+   async function saveEdit() {
++    if (!permissions.canManageAgreements) {
++      setEditError("You do not have permission to edit agreements.");
++      return;
++    }
++
+     setEditError(null);
+     setEditStatus(null);
+ 
+@@ -474,6 +586,14 @@ export default function ManageAgreementsPageClient() {
+       setEditError("Please enter a Chapter.");
+       return;
+     }
++    if (
++      permissions.isChapterAdmin &&
++      !permissions.isSystemAdmin &&
++      !isManagedChapter(editChapter, permissions.managedChapterNames)
++    ) {
++      setEditError("Chapter Admins can only edit agreements for assigned chapters.");
++      return;
++    }
+ 
+     if (!editLocalUnion.trim()) {
+       setEditError("Please enter a Local Union.");
+@@ -585,6 +705,11 @@ export default function ManageAgreementsPageClient() {
+   }
+ 
+   async function deleteAgreement(row: AgreementRow) {
++    if (!permissions.canManageAgreements) {
++      setError("You do not have permission to delete agreements.");
++      return;
++    }
++
+     const confirmed = window.confirm(
+       `Delete "${row.agreementName}"?\n\nThis will permanently remove the agreement and its file from the database. This cannot be undone.`
+     );
+@@ -634,8 +759,8 @@ export default function ManageAgreementsPageClient() {
+       if (!res.ok) {
+         throw new Error(data?.error ?? "Search failed.");
+       }
+-
+-      const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
++      
++     const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
+         (row) => ({
+           id: row.id,
+           agreementName: row.agreementName || "(untitled agreement)",
+@@ -708,6 +833,20 @@ export default function ManageAgreementsPageClient() {
+     [allAgreementRows]
+   );
+ 
++  const allowedChapterOptions = useMemo(() => {
++    if (permissions.isSystemAdmin) return chapterOptions;
++
++    const managedKeys = new Set(
++      permissions.managedChapterNames.map((chapterName) =>
++        normalizeChapterKey(chapterName)
++      )
++    );
++
++    return chapterOptions.filter((option) =>
++      managedKeys.has(normalizeChapterKey(option.value))
++    );
++  }, [chapterOptions, permissions.isSystemAdmin, permissions.managedChapterNames]);
++
+   const localUnionOptions = useMemo(
+     () =>
+       toOptionArray(
+@@ -738,7 +877,48 @@ export default function ManageAgreementsPageClient() {
+     [allAgreementRows]
+   );
+ 
+-  const baseRows = searchRows ?? allAgreementRows;
++  const scopedRows = useMemo(() => {
++    if (permissions.isSystemAdmin) return allAgreementRows;
++    if (!permissions.isChapterAdmin) return allAgreementRows;
++
++    const managedKeys = new Set(
++      permissions.managedChapterNames.map((chapterName) =>
++        normalizeChapterKey(chapterName)
++      )
++    );
++
++    return allAgreementRows.filter((row) =>
++      managedKeys.has(normalizeChapterKey(row.chapter))
++    );
++  }, [
++    allAgreementRows,
++    permissions.isSystemAdmin,
++    permissions.isChapterAdmin,
++    permissions.managedChapterNames,
++  ]);
++
++  const baseRows = useMemo(() => {
++    const source = searchRows ?? scopedRows;
++    if (permissions.isSystemAdmin || !permissions.isChapterAdmin) {
++      return source;
++    }
++
++    const managedKeys = new Set(
++      permissions.managedChapterNames.map((chapterName) =>
++        normalizeChapterKey(chapterName)
++      )
++    );
++
++    return source.filter((row) =>
++      managedKeys.has(normalizeChapterKey(row.chapter))
++    );
++  }, [
++    searchRows,
++    scopedRows,
++    permissions.isSystemAdmin,
++    permissions.isChapterAdmin,
++    permissions.managedChapterNames,
++  ]);
+ 
+   const filteredAgreementRows = useMemo(() => {
+     const nameNeedle = agreementNameQuery.trim().toLowerCase();
+@@ -804,7 +984,17 @@ export default function ManageAgreementsPageClient() {
+ 
+   return (
+     <div style={styles.page}>
+-      <ManageAgreementsHero onOpenUploadModal={openUploadModal} />
++      <ManageAgreementsHero
++        onOpenUploadModal={openUploadModal}
++        canManageAgreements={!permissionsLoading && permissions.canManageAgreements}
++      />
++
++      {!permissionsLoading && !permissions.canManageAgreements ? (
++        <div style={styles.errorBox}>
++          <b>Read-only access:</b> Upload, edit, and delete are restricted to
++          System Admins and Chapter Admins.
++        </div>
++      ) : null}
+ 
+       {uploadStatus && <div style={styles.successBox}>{uploadStatus}</div>}
+ 
+@@ -835,11 +1025,13 @@ export default function ManageAgreementsPageClient() {
+             filesLoading={filesLoading || loadingCollections}
+             searchLoading={searchLoading}
+             searchError={searchError}
+-            agreementRows={allAgreementRows}
++            agreementRows={scopedRows}
+             filteredAgreementRows={statusFilteredRows}
+             agreementNameQuery={agreementNameQuery}
+             contentSearchQuery={contentSearchQuery}
+-            chapterOptions={chapterOptions}
++            chapterOptions={
++              permissions.isSystemAdmin ? chapterOptions : allowedChapterOptions
++            }
+             localUnionOptions={localUnionOptions}
+             agreementTypeOptions={agreementTypeOptions}
+             stateOptions={stateOptions}
+@@ -868,6 +1060,7 @@ export default function ManageAgreementsPageClient() {
+             onOpenEditModal={openEditModal}
+             onDeleteAgreement={deleteAgreement}
+             isDeletingAgreementId={isDeletingAgreementId}
++            canManageAgreements={!permissionsLoading && permissions.canManageAgreements}
+           />
+         </div>
+ 
+@@ -1073,6 +1266,15 @@ export default function ManageAgreementsPageClient() {
+         dragActive={dragActive}
+         uploadStatus={uploadStatus}
+         uploadError={uploadError}
++        chapterOptions={
++          permissions.isSystemAdmin
++            ? chapterOptions.map((option) => option.value)
++            : permissions.managedChapterNames
++        }
++        chapterLocked={
++          !permissions.isSystemAdmin &&
++          permissions.managedChapterNames.length === 1
++        }
+         fileInputRef={fileInputRef}
+         onClose={closeUploadModal}
+         onAgreementNameChange={setAgreementName}
+@@ -1131,12 +1333,28 @@ export default function ManageAgreementsPageClient() {
+ 
+                 <div>
+                   <label style={labelStyle}>Chapter {requiredMark}</label>
+-                  <input
+-                    type="text"
+-                    value={editChapter}
+-                    onChange={(e) => setEditChapter(e.target.value)}
+-                    style={styles.input}
+-                  />
++                  {!permissions.isSystemAdmin &&
++                  permissions.managedChapterNames.length === 1 ? (
++                    <input type="text" value={editChapter} style={styles.input} disabled />
++                  ) : (
++                    <>
++                      <input
++                        type="text"
++                        list="edit-chapter-options"
++                        value={editChapter}
++                        onChange={(e) => setEditChapter(e.target.value)}
++                        style={styles.input}
++                      />
++                      <datalist id="edit-chapter-options">
++                        {(permissions.isSystemAdmin
++                          ? chapterOptions.map((option) => option.value)
++                          : permissions.managedChapterNames
++                        ).map((option) => (
++                          <option key={option} value={option} />
++                        ))}
++                      </datalist>
++                    </>
++                  )}
+                 </div>
+ 
+                 <div>
+@@ -1291,4 +1509,4 @@ export default function ManageAgreementsPageClient() {
+       )}
+     </div>
+   );
+-}
++}
+\ No newline at end of file
+diff --git a/components/manage-agreements/UploadAgreementModal.tsx b/components/manage-agreements/UploadAgreementModal.tsx
+index b484180..c27f1c1 100644
+--- a/components/manage-agreements/UploadAgreementModal.tsx
++++ b/components/manage-agreements/UploadAgreementModal.tsx
+@@ -19,6 +19,8 @@ type UploadAgreementModalProps = {
+   dragActive: boolean;
+   uploadStatus: string | null;
+   uploadError: string | null;
++  chapterOptions: string[];
++  chapterLocked: boolean;
+   fileInputRef: React.RefObject<HTMLInputElement | null>;
+   onClose: () => void;
+   onAgreementNameChange: (value: string) => void;
+@@ -110,6 +112,8 @@ export default function UploadAgreementModal({
+   dragActive,
+   uploadStatus,
+   uploadError,
++  chapterOptions,
++  chapterLocked,
+   fileInputRef,
+   onClose,
+   onAgreementNameChange,
+@@ -296,12 +300,25 @@ export default function UploadAgreementModal({
+               <label style={labelStyle}>
+                 Chapter {requiredMark}
+               </label>
+-              <input
+-                value={chapter}
+-                onChange={(e) => onChapterChange(e.target.value)}
+-                style={styles.input}
+-                disabled={isExtracting}
+-              />
++              {chapterLocked ? (
++                <input value={chapter} style={styles.input} disabled />
++              ) : (
++                <>
++                  <input
++                    list="chapter-options"
++                    value={chapter}
++                    onChange={(e) => onChapterChange(e.target.value)}
++                    style={styles.input}
++                    placeholder="e.g. Southern Chapter"
++                    disabled={isExtracting}
++                  />
++                  <datalist id="chapter-options">
++                    {chapterOptions.map((option) => (
++                      <option key={option} value={option} />
++                    ))}
++                  </datalist>
++                </>
++              )}
+             </div>
+ 
+             <div>
+@@ -453,4 +470,4 @@ export default function UploadAgreementModal({
+       </div>
+     </div>
+   );
+-}
++}
+\ No newline at end of file
