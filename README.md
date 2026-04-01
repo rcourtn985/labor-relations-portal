@@ -2,11 +2,13 @@
 
 Labor Relations Portal is a Next.js application for building a searchable agreement database and AI-assisted workspace around collective bargaining agreements and related labor documents.
 
-The project is evolving toward a small alpha release focused on:
-- uploading and organizing agreements
-- searching agreement metadata and extracted agreement text
-- previewing agreements in-app
-- interacting with agreements through chat/RAG workflows
+The project is currently centered on a practical agreement-management workflow:
+- upload and organize agreements
+- capture and edit agreement metadata
+- search agreement metadata and extracted text
+- preview agreements in-app
+- manage authenticated user access by role and chapter
+- support chapter-scoped and nationally shared agreement access
 
 ## Source of truth
 
@@ -16,51 +18,72 @@ When making changes:
 - use the current repo state, not memory
 - verify actual file paths and current code before editing
 - prefer small, grounded changes over speculative rewrites
+- do not assume branch state from prior chats
+- keep behavior changes narrow and testable
 
 ## Current status
 
-The app is currently in active pre-alpha development.
+The app is in active pre-alpha development.
 
-Working areas include:
-- agreement upload flow
-- agreement metadata capture and editing
-- local original file storage
-- extracted text storage for agreement content search
-- agreement database page with filters and content search
-- side-panel agreement preview
-- in-document PDF viewing with search and highlight
-- in-document text view with search and highlight
-- chat retrieval against agreement-related knowledge bases
+The current product direction is:
+- the **Agreement Database** is the primary working surface
+- authenticated access and chapter-based permissions are now part of the core product
+- chat/RAG remains important, but is secondary to the agreement database workflow
+- system administration is expanding to support real user and chapter management before broader alpha use
 
-Current direction:
-- the agreement database is becoming the primary user workflow
-- chat is becoming a secondary or integrated workflow launched from the database experience
-- authentication, hosted storage, and production-ready database work are planned before broader alpha use
-
-## Core features
+## Working features
 
 ### Agreement database
 The main working surface for uploaded agreements.
 
-Includes:
-- agreement list and filters
-- agreement name as clickable link to open document preview
+Current capabilities include:
+- agreement list with filtering by chapter, local union, agreement type, state, and national database visibility
+- agreement name click-through to open in-app preview
 - agreement metadata editing
-- content search against extracted agreement text
-- side-panel document preview with PDF and text view modes
-- in-document search toolbar with Context and Precise modes and prev/next navigation
+- extracted-text content search
+- side-panel agreement preview
+- in-document PDF viewing with search and highlight
+- text and PDF inline preview support
+- shared/national agreement visibility for chapter admins
+- chapter-admin read-only access to out-of-scope nationally shared agreements with direct download
 
 ### Upload and storage
 Uploads currently:
-- create/update agreement records
+- create or update agreement records
 - store original uploaded files locally
-- extract PDF text for searchable agreement content
-- upload files to OpenAI/vector store workflows used by chat
+- extract PDF text for agreement content search
+- send files into OpenAI/vector-store workflows used by retrieval/chat
+- support chapter selection during upload based on user permissions
+  - system admins can choose from the full chapter list
+  - chapter admins are limited to assigned chapters
+
+### Authentication and access control
+Authentication and authorization are now active parts of the application.
+
+Current capabilities include:
+- authenticated sign-in flow
+- account status tracking (`INVITED`, `ACTIVE`, `DENIED`, `DISABLED`)
+- global role support (`SYSTEM_ADMIN`, `STANDARD`)
+- chapter membership support with per-chapter roles
+- chapter admin restrictions for agreement upload/edit/delete
+- public chapter list endpoint used by access-request and admin workflows
+
+### System administration
+System administration now includes:
+- access request review
+- active user management
+- updating account status
+- assigning and removing chapter memberships
+- setting chapter membership role (`USER` or `CHAPTER_ADMIN`)
+- updating global role (`STANDARD` or `SYSTEM_ADMIN`)
 
 ### Chat / RAG
 The app includes chat workflows that retrieve against agreement-related knowledge bases.
 
-Current intent is for chat to work alongside the agreement database rather than replace it.
+Current intent:
+- chat works alongside the agreement database
+- the agreement database remains the primary operational workflow
+- chat is expected to become more tightly integrated with agreement exploration over time
 
 ## Current tech stack
 
@@ -70,15 +93,26 @@ Current intent is for chat to work alongside the agreement database rather than 
 - **Current database:** PostgreSQL (Neon)
 - **Current original file storage:** local filesystem under `storage/originals`
 - **PDF text extraction:** Python with `pypdf`
-- **PDF in-app preview/search:** custom PDF.js-based viewer page under `public/pdfjs`
+- **PDF in-app preview/search:** custom PDF.js-based viewer under `public/pdfjs`
 - **AI / retrieval:** OpenAI file/vector store workflows
+- **Auth/session model:** NextAuth-based session/auth flow with Prisma-backed user and membership data
 
 ## Current architecture notes
 
 ### Database
 The project has migrated from SQLite to **PostgreSQL** (hosted on Neon) for development.
 
-This supports the long-term expectation of hosted multi-user usage before broader alpha release.
+The schema now supports:
+- users
+- chapters
+- chapter memberships
+- access requests
+- knowledge bases
+- documents
+- extracted text storage
+- usage and retrieval event tracking
+
+This supports the long-term goal of hosted, multi-user usage before broader alpha release. The current schema includes user account status, global role, and chapter membership role support. 
 
 ### Original file storage
 Original uploaded files are currently stored locally under:
