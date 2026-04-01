@@ -143,19 +143,19 @@ function validateSeed(chapters: ChapterSeed[]) {
     const name = normalizeName(chapter.name);
 
     if (!code) {
-      throw new Error(`Found a chapter with a blank code.`);
+      throw new Error(`Blank code found for chapter "${name}".`);
     }
 
     if (!name) {
-      throw new Error(`Found a chapter with a blank name.`);
+      throw new Error(`Blank name found for chapter code "${code}".`);
     }
 
     if (codes.has(code)) {
-      throw new Error(`Duplicate chapter code found in seed list: "${code}"`);
+      throw new Error(`Duplicate chapter code in seed list: "${code}"`);
     }
 
     if (names.has(name)) {
-      throw new Error(`Duplicate chapter name found in seed list: "${name}"`);
+      throw new Error(`Duplicate chapter name in seed list: "${name}"`);
     }
 
     codes.add(code);
@@ -180,7 +180,7 @@ async function upsertChapter(chapter: ChapterSeed) {
 
   if (matches.length > 1) {
     throw new Error(
-      `Multiple existing Chapter rows matched seed entry "${code} - ${name}". Clean up duplicates in the database before seeding again.`
+      `Multiple Chapter rows match "${code} - ${name}". Clean up duplicates first.`
     );
   }
 
@@ -213,7 +213,7 @@ async function main() {
     await upsertChapter(chapter);
   }
 
-  console.log(`Seeded/updated ${CHAPTERS.length} chapters.`);
+  console.log(`Repaired ${CHAPTERS.length} chapter records.`);
 }
 
 main()
@@ -221,7 +221,7 @@ main()
     await prisma.$disconnect();
   })
   .catch(async (error) => {
-    console.error("Failed to seed chapters:");
+    console.error("Chapter repair failed:");
     console.error(error);
     await prisma.$disconnect();
     process.exit(1);

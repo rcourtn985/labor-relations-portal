@@ -1,7 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { manageAgreementsStyles as styles } from "./styles";
+import SearchableChapterSelect, {
+  ChapterOption,
+} from "./SearchableChapterSelect";
 
 type UploadAgreementModalProps = {
   isOpen: boolean;
@@ -19,7 +22,7 @@ type UploadAgreementModalProps = {
   dragActive: boolean;
   uploadStatus: string | null;
   uploadError: string | null;
-  chapterOptions: string[];
+  chapterOptions: ChapterOption[];
   chapterLocked: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onClose: () => void;
@@ -296,30 +299,16 @@ export default function UploadAgreementModal({
               />
             </div>
 
-            <div>
-              <label style={labelStyle}>
-                Chapter {requiredMark}
-              </label>
-              {chapterLocked ? (
-                <input value={chapter} style={styles.input} disabled />
-              ) : (
-                <>
-                  <input
-                    list="chapter-options"
-                    value={chapter}
-                    onChange={(e) => onChapterChange(e.target.value)}
-                    style={styles.input}
-                    placeholder="e.g. Southern Chapter"
-                    disabled={isExtracting}
-                  />
-                  <datalist id="chapter-options">
-                    {chapterOptions.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
-                </>
-              )}
-            </div>
+            <SearchableChapterSelect
+              label="Chapter"
+              required
+              value={chapter}
+              options={chapterOptions}
+              locked={chapterLocked}
+              disabled={isExtracting}
+              placeholder="Start typing a chapter name"
+              onChange={onChapterChange}
+            />
 
             <div>
               <label style={labelStyle}>

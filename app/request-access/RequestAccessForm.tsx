@@ -19,6 +19,8 @@ function formatPhoneNumber(value: string): string {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
+const MAX_VISIBLE_CHAPTERS = 100;
+
 export default function RequestAccessForm() {
   const [chapters, setChapters] = useState<ChapterOption[]>([]);
   const [chaptersLoading, setChaptersLoading] = useState(true);
@@ -69,13 +71,15 @@ export default function RequestAccessForm() {
   const filteredChapters = useMemo(() => {
     const needle = chapterSearch.trim().toLowerCase();
 
-    if (!needle) return chapters.slice(0, 12);
+    if (!needle) {
+      return chapters.slice(0, MAX_VISIBLE_CHAPTERS);
+    }
 
     return chapters
       .filter((chapter) =>
         `${chapter.name} ${chapter.code ?? ""}`.toLowerCase().includes(needle)
       )
-      .slice(0, 12);
+      .slice(0, MAX_VISIBLE_CHAPTERS);
   }, [chapters, chapterSearch]);
 
   const selectedChapter = useMemo(
@@ -341,7 +345,7 @@ export default function RequestAccessForm() {
           </div>
         ) : null}
 
-        {chapterDropdownOpen && filteredChapters.length > 0 ? (
+        {chapterDropdownOpen ? (
           <div
             style={{
               position: "absolute",
@@ -358,32 +362,44 @@ export default function RequestAccessForm() {
               zIndex: 20,
             }}
           >
-            {filteredChapters.map((chapter) => (
-              <button
-                key={chapter.id}
-                type="button"
-                onClick={() => selectChapter(chapter)}
+            {filteredChapters.length > 0 ? (
+              filteredChapters.map((chapter) => (
+                <button
+                  key={chapter.id}
+                  type="button"
+                  onClick={() => selectChapter(chapter)}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "12px 14px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    borderBottom: "1px solid rgba(214, 222, 232, 0.5)",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: "var(--foreground)" }}>
+                    {chapter.name}
+                  </div>
+                  {chapter.code ? (
+                    <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                      {chapter.code}
+                    </div>
+                  ) : null}
+                </button>
+              ))
+            ) : (
+              <div
                 style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
                   padding: "12px 14px",
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  borderBottom: "1px solid rgba(214, 222, 232, 0.5)",
+                  color: "var(--muted)",
+                  fontSize: 14,
                 }}
               >
-                <div style={{ fontWeight: 700, color: "var(--foreground)" }}>
-                  {chapter.name}
-                </div>
-                {chapter.code ? (
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                    {chapter.code}
-                  </div>
-                ) : null}
-              </button>
-            ))}
+                No chapters found.
+              </div>
+            )}
           </div>
         ) : null}
 

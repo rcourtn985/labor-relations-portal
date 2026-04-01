@@ -43,6 +43,7 @@ type AgreementDatabaseCardProps = {
   onDeleteAgreement: (row: AgreementRow) => void;
   isDeletingAgreementId: string | null;
   canManageAgreements?: boolean;
+  canManageAgreement?: (row: AgreementRow) => boolean;
 };
 
 type AgreementStatus = "active" | "expired" | "upcoming";
@@ -143,6 +144,7 @@ export default function AgreementDatabaseCard({
   onDeleteAgreement,
   isDeletingAgreementId,
   canManageAgreements = true,
+  canManageAgreement,
 }: AgreementDatabaseCardProps) {
   return (
     <div
@@ -486,6 +488,10 @@ export default function AgreementDatabaseCard({
               {filteredAgreementRows.map((row) => {
                 const agreementStatus = getAgreementStatus(row);
                 const isDeleting = isDeletingAgreementId === row.id;
+                const rowCanManage = canManageAgreement
+                  ? canManageAgreement(row)
+                  : canManageAgreements;
+
                 return (
                   <tr key={row.id}>
                     <td style={styles.td}>
@@ -537,34 +543,49 @@ export default function AgreementDatabaseCard({
                     </td>
                     {canManageAgreements ? (
                       <td style={styles.td}>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            type="button"
-                            onClick={() => onOpenEditModal(row)}
-                            disabled={isDeleting}
-                            style={{
-                              ...styles.subtleBtn,
-                              ...(isDeleting ? styles.btnDisabled : null),
-                            }}
+                        {rowCanManage ? (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => onOpenEditModal(row)}
+                              disabled={isDeleting}
+                              style={{
+                                ...styles.subtleBtn,
+                                ...(isDeleting ? styles.btnDisabled : null),
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteAgreement(row)}
+                              disabled={isDeleting}
+                              style={{
+                                ...styles.subtleBtn,
+                                ...(isDeleting ? styles.btnDisabled : null),
+                                color: isDeleting ? undefined : "#991b1b",
+                                borderColor: isDeleting
+                                  ? undefined
+                                  : "rgba(185,28,28,0.25)",
+                              }}
+                            >
+                              {isDeleting ? "Deleting…" : "Delete"}
+                            </button>
+                          </div>
+                        ) : row.fileUrl ? (
+                          <a
+                            href={row.fileUrl}
+                            download={row.filename || undefined}
+                            style={styles.subtleBtn}
+                            title={`Download ${row.filename}`}
                           >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteAgreement(row)}
-                            disabled={isDeleting}
-                            style={{
-                              ...styles.subtleBtn,
-                              ...(isDeleting ? styles.btnDisabled : null),
-                              color: isDeleting ? undefined : "#991b1b",
-                              borderColor: isDeleting
-                                ? undefined
-                                : "rgba(185,28,28,0.25)",
-                            }}
-                          >
-                            {isDeleting ? "Deleting…" : "Delete"}
-                          </button>
-                        </div>
+                            Download
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--muted)", fontSize: 13 }}>
+                            Unavailable
+                          </span>
+                        )}
                       </td>
                     ) : null}
                   </tr>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { auth } from "@/auth";
 import UserMenu from "@/components/auth/UserMenu";
+import TopbarAgreementButton from "@/components/navigation/TopbarAgreementButton";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -49,7 +50,9 @@ export default async function RootLayout({
       >
         <div className="os-app-shell">
           <header className="os-topbar">
-            <div className="os-topbar__brand">Labor Relations Portal</div>
+            <div className="os-topbar__brand">
+              <TopbarAgreementButton />
+            </div>
 
             <div className="os-topbar__actions">
               {user ? (

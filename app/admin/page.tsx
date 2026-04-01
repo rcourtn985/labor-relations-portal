@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import AccessRequestsClient from "./access-requests/AccessRequestsClient";
+import ActiveUsersClient from "./active-users/ActiveUsersClient";
 
 export default async function AdminPage() {
   const session = await auth();
@@ -36,12 +37,13 @@ export default async function AdminPage() {
       >
         <h1 style={{ margin: 0, marginBottom: 8 }}>Site Administration</h1>
         <p style={{ margin: 0, color: "var(--muted)" }}>
-          Review pending requests, approve or deny access, and keep notes for
-          future follow-up.
+          Review access requests, manage active users, adjust chapter
+          assignments, and control account access.
         </p>
       </div>
 
       <AccessRequestsClient />
+      <ActiveUsersClient />
     </div>
   );
 }

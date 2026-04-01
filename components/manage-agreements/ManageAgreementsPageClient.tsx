@@ -1,164 +1,37 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import AgreementDatabaseCard from "./AgreementDatabaseCard";
+import AgreementPreviewPanel from "./AgreementPreviewPanel";
+import EditAgreementModal from "./EditAgreementModal";
 import ManageAgreementsHero from "./ManageAgreementsHero";
 import UploadAgreementModal from "./UploadAgreementModal";
+import { ChapterOption } from "./SearchableChapterSelect";
 import { manageAgreementsStyles as styles } from "./styles";
 import { AgreementRow, KBFilesResponse, KBIndexResponse } from "./types";
-
-const AgreementPdfViewer = dynamic(() => import("./AgreementPdfViewer"), {
-  ssr: false,
-  loading: () => (
-    <div style={{ padding: 18, color: "var(--muted-strong)", fontWeight: 700 }}>
-      Loading PDF viewer…
-    </div>
-  ),
-});
-
-type FilterOption = {
-  value: string;
-  label: string;
-};
-
-type SessionMembership = {
-  chapterId: string;
-  chapterName: string;
-  role: "CHAPTER_ADMIN" | "USER";
-};
-
-type ViewerPermissions = {
-  isSystemAdmin: boolean;
-  isChapterAdmin: boolean;
-  canManageAgreements: boolean;
-  managedChapterNames: string[];
-};
-
-type SearchResultRow = {
-  id: string;
-  agreementName: string;
-  collectionId: string;
-  filename: string;
-  uploadedAt: number;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
-  sharedToCbas: boolean;
-  effectiveFrom?: string | null;
-  effectiveTo?: string | null;
-};
-
-type AgreementPreviewResponse = {
-  id: string;
-  agreementName: string;
-  collectionId: string;
-  filename: string;
-  uploadedAt: number;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
-  sharedToCbas: boolean;
-  storageProvider: string | null;
-  storageKey: string | null;
-  mimeType: string | null;
-  fileSizeBytes: number | null;
-  sha256: string | null;
-  extractionState: string;
-  extractedAt: number | null;
-  hasStoredOriginal: boolean;
-  fileUrl: string | null;
-  canPreviewInline: boolean;
-};
-
-type ExtractedMetadata = {
-  agreementName: string | null;
-  chapter: string | null;
-  localUnion: string | null;
-  agreementType: string | null;
-  states: string | null;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-};
-
-function normalizeValue(value: string | null | undefined) {
-  return (value ?? "").trim();
-}
-
-function normalizeChapterKey(value: string | null | undefined) {
-  return normalizeValue(value).toLowerCase();
-}
-
-function isManagedChapter(
-  chapterName: string,
-  managedChapterNames: string[]
-): boolean {
-  const key = normalizeChapterKey(chapterName);
-  if (!key) return false;
-  return managedChapterNames.some(
-    (managedChapterName) => normalizeChapterKey(managedChapterName) === key
-  );
-}
-
-function splitCommaSeparated(value: string | null | undefined): string[] {
-  return normalizeValue(value)
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function toOptionArray(values: string[]): FilterOption[] {
-  return [...new Set(values)]
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b))
-    .map((value) => ({ value, label: value }));
-}
-
-function matchesSingle(value: string, selected: string[]) {
-  if (selected.length === 0) return true;
-  return selected.includes(value);
-}
-
-function matchesMultiValue(value: string, selected: string[]) {
-  if (selected.length === 0) return true;
-  const parts = splitCommaSeparated(value);
-  return parts.some((part) => selected.includes(part));
-}
-
-function getEditProgressPercent(status: string | null): number {
-  if (!status) return 0;
-  const value = status.toLowerCase();
-  if (value.includes("saving changes")) return 25;
-  if (value.includes("syncing shared copies")) return 60;
-  if (value.includes("refreshing agreements")) return 85;
-  if (value.includes("done") || value.includes("saved")) return 100;
-  if (value.includes("saving")) return 35;
-  return 0;
-}
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  marginBottom: 8,
-  fontWeight: 700,
-  fontSize: 13,
-  color: "var(--muted-strong)",
-};
-
-const requiredMark = (
-  <span style={{ color: "#c0392b", marginLeft: 2 }}>*</span>
-);
+import { useManageAgreementsAccess } from "./hooks/useManageAgreementsAccess";
+import {
+  AgreementPreviewResponse,
+  ExtractedMetadata,
+  SearchResultRow,
+  SHARED_CBAS_KB_ID,
+  buildAgreementDedupKey,
+  isManagedChapter,
+  isVisibleToChapterAdmin,
+  matchesMultiValue,
+  matchesSingle,
+  normalizeValue,
+  splitCommaSeparated,
+  toOptionArray,
+} from "./manageAgreementsPageUtils";
 
 export default function ManageAgreementsPageClient() {
-  const [permissionsLoading, setPermissionsLoading] = useState(true);
-  const [permissions, setPermissions] = useState<ViewerPermissions>({
-    isSystemAdmin: false,
-    isChapterAdmin: false,
-    canManageAgreements: false,
-    managedChapterNames: [],
-  });
+  const {
+    permissionsLoading,
+    permissions,
+    publicChapterOptions,
+    publicChaptersLoading,
+  } = useManageAgreementsAccess();
 
   const [kbIndex, setKbIndex] = useState<KBIndexResponse | null>(null);
   const [loadingCollections, setLoadingCollections] = useState(false);
@@ -224,59 +97,6 @@ export default function ManageAgreementsPageClient() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadPermissions() {
-      try {
-        const res = await fetch("/api/auth/session");
-        const data = (await res.json()) as {
-          user?: {
-            globalRole?: "SYSTEM_ADMIN" | "STANDARD";
-            memberships?: SessionMembership[];
-          };
-        };
-
-        if (cancelled) return;
-
-        const memberships = (data?.user?.memberships ?? []) as SessionMembership[];
-        const isSystemAdmin = data?.user?.globalRole === "SYSTEM_ADMIN";
-        const isChapterAdmin = memberships.some(
-          (membership) => membership.role === "CHAPTER_ADMIN"
-        );
-        const managedChapterNames = memberships
-          .filter((membership) => membership.role === "CHAPTER_ADMIN")
-          .map((membership) => normalizeValue(membership.chapterName))
-          .filter(Boolean);
-
-        setPermissions({
-          isSystemAdmin,
-          isChapterAdmin,
-          canManageAgreements: isSystemAdmin || isChapterAdmin,
-          managedChapterNames: [...new Set(managedChapterNames)],
-        });
-      } catch {
-        if (cancelled) return;
-        setPermissions({
-          isSystemAdmin: false,
-          isChapterAdmin: false,
-          canManageAgreements: false,
-          managedChapterNames: [],
-        });
-      } finally {
-        if (!cancelled) {
-          setPermissionsLoading(false);
-        }
-      }
-    }
-
-    void loadPermissions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   async function loadCollections() {
     const res = await fetch("/api/kb/list");
     const data = (await res.json()) as KBIndexResponse;
@@ -290,7 +110,15 @@ export default function ManageAgreementsPageClient() {
 
     try {
       const index = indexOverride ?? (await loadCollections());
-      const collections = index?.userKbs ?? [];
+
+      const sharedSystemKbs = (index?.systemKbs ?? []).filter(
+        (kb) => kb.id === SHARED_CBAS_KB_ID
+      );
+
+      const collections = [...sharedSystemKbs, ...(index?.userKbs ?? [])].filter(
+        (collection, collectionIndex, array) =>
+          array.findIndex((item) => item.id === collection.id) === collectionIndex
+      );
 
       const fileResults = await Promise.all(
         collections.map(async (collection) => {
@@ -332,8 +160,26 @@ export default function ManageAgreementsPageClient() {
         }));
       });
 
-      rows.sort((a, b) => b.uploadedAt - a.uploadedAt);
-      setAllAgreementRows(rows);
+      const rowsForDedup = [...rows].sort((a, b) => {
+        if (a.sharedToCbas !== b.sharedToCbas) {
+          return a.sharedToCbas ? 1 : -1;
+        }
+        return b.uploadedAt - a.uploadedAt;
+      });
+
+      const dedupedMap = new Map<string, AgreementRow>();
+      for (const row of rowsForDedup) {
+        const key = buildAgreementDedupKey(row);
+        if (!dedupedMap.has(key)) {
+          dedupedMap.set(key, row);
+        }
+      }
+
+      const dedupedRows = Array.from(dedupedMap.values()).sort(
+        (a, b) => b.uploadedAt - a.uploadedAt
+      );
+
+      setAllAgreementRows(dedupedRows);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load agreements.");
       setAllAgreementRows([]);
@@ -390,9 +236,11 @@ export default function ManageAgreementsPageClient() {
   function openUploadModal() {
     if (!permissions.canManageAgreements) return;
     resetUploadForm();
+
     if (!permissions.isSystemAdmin && permissions.managedChapterNames.length > 0) {
       setChapter(permissions.managedChapterNames[0]);
     }
+
     setIsUploadModalOpen(true);
   }
 
@@ -403,6 +251,7 @@ export default function ManageAgreementsPageClient() {
 
   async function extractMetadata(file: File) {
     setIsExtracting(true);
+
     try {
       const form = new FormData();
       form.append("file", file);
@@ -416,10 +265,7 @@ export default function ManageAgreementsPageClient() {
 
       const data = (await res.json()) as ExtractedMetadata;
 
-      //if (data.agreementName) setAgreementName(data.agreementName);
-      //if (data.chapter) setChapter(data.chapter);
       if (data.localUnion) setLocalUnion(data.localUnion);
-      //if (data.agreementType) setAgreementType(data.agreementType);
       if (data.states) setStates(data.states);
       if (data.effectiveFrom) setEffectiveFrom(data.effectiveFrom);
       if (data.effectiveTo) setEffectiveTo(data.effectiveTo);
@@ -432,6 +278,7 @@ export default function ManageAgreementsPageClient() {
 
   function handleDroppedFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
+
     const file = fileList[0];
     setAgreementFiles([file]);
     extractMetadata(file);
@@ -457,9 +304,10 @@ export default function ManageAgreementsPageClient() {
     }
 
     if (!chapter.trim()) {
-      setUploadError("Please enter a Chapter.");
+      setUploadError("Please select a Chapter.");
       return;
     }
+
     if (
       permissions.isChapterAdmin &&
       !permissions.isSystemAdmin &&
@@ -542,8 +390,16 @@ export default function ManageAgreementsPageClient() {
     }
   }
 
+  function canManageAgreementRow(row: AgreementRow): boolean {
+    if (permissions.isSystemAdmin) return true;
+    if (!permissions.isChapterAdmin) return false;
+    return isManagedChapter(row.chapter, permissions.managedChapterNames);
+  }
+
   function openEditModal(row: AgreementRow) {
     if (!permissions.canManageAgreements) return;
+    if (!canManageAgreementRow(row)) return;
+
     setEditingAgreementId(row.id);
     setEditAgreementName(row.agreementName);
     setEditChapter(row.chapter === "—" ? "" : row.chapter);
@@ -583,9 +439,10 @@ export default function ManageAgreementsPageClient() {
     }
 
     if (!editChapter.trim()) {
-      setEditError("Please enter a Chapter.");
+      setEditError("Please select a Chapter.");
       return;
     }
+
     if (
       permissions.isChapterAdmin &&
       !permissions.isSystemAdmin &&
@@ -710,6 +567,11 @@ export default function ManageAgreementsPageClient() {
       return;
     }
 
+    if (!canManageAgreementRow(row)) {
+      setError("Chapter Admins can only delete agreements for assigned chapters.");
+      return;
+    }
+
     const confirmed = window.confirm(
       `Delete "${row.agreementName}"?\n\nThis will permanently remove the agreement and its file from the database. This cannot be undone.`
     );
@@ -717,17 +579,21 @@ export default function ManageAgreementsPageClient() {
 
     setIsDeletingAgreementId(row.id);
     setError(null);
+
     try {
       const res = await fetch(`/api/agreements/${encodeURIComponent(row.id)}`, {
         method: "DELETE",
       });
       const data = await res.json();
+
       if (!res.ok) {
         throw new Error(data?.error ?? "Delete failed.");
       }
+
       if (previewData?.id === row.id) {
         closePreviewPanel();
       }
+
       await loadAllAgreements().catch(() =>
         setError("Failed to refresh agreements.")
       );
@@ -759,8 +625,8 @@ export default function ManageAgreementsPageClient() {
       if (!res.ok) {
         throw new Error(data?.error ?? "Search failed.");
       }
-      
-     const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
+
+      const rows: AgreementRow[] = ((data?.results ?? []) as SearchResultRow[]).map(
         (row) => ({
           id: row.id,
           agreementName: row.agreementName || "(untitled agreement)",
@@ -823,72 +689,43 @@ export default function ManageAgreementsPageClient() {
     };
   }, [contentSearchQuery]);
 
-  const chapterOptions = useMemo(
-    () =>
-      toOptionArray(
-        allAgreementRows
-          .map((row) => normalizeValue(row.chapter))
-          .filter((value) => value && value !== "—")
-      ),
-    [allAgreementRows]
-  );
+  const managedChapterPickerOptions = useMemo<ChapterOption[]>(() => {
+    if (permissions.isSystemAdmin) {
+      return publicChapterOptions;
+    }
 
-  const allowedChapterOptions = useMemo(() => {
-    if (permissions.isSystemAdmin) return chapterOptions;
+    if (publicChapterOptions.length > 0 && permissions.managedChapterIds.length > 0) {
+      const managedIdSet = new Set(permissions.managedChapterIds);
+      const fromPublic = publicChapterOptions.filter((option) =>
+        managedIdSet.has(option.id)
+      );
 
-    const managedKeys = new Set(
-      permissions.managedChapterNames.map((chapterName) =>
-        normalizeChapterKey(chapterName)
-      )
-    );
+      if (fromPublic.length > 0) {
+        return fromPublic;
+      }
+    }
 
-    return chapterOptions.filter((option) =>
-      managedKeys.has(normalizeChapterKey(option.value))
-    );
-  }, [chapterOptions, permissions.isSystemAdmin, permissions.managedChapterNames]);
-
-  const localUnionOptions = useMemo(
-    () =>
-      toOptionArray(
-        allAgreementRows.flatMap((row) =>
-          splitCommaSeparated(row.localUnion === "—" ? "" : row.localUnion)
-        )
-      ),
-    [allAgreementRows]
-  );
-
-  const agreementTypeOptions = useMemo(
-    () =>
-      toOptionArray(
-        allAgreementRows
-          .map((row) => normalizeValue(row.agreementType))
-          .filter((value) => value && value !== "—")
-      ),
-    [allAgreementRows]
-  );
-
-  const stateOptions = useMemo(
-    () =>
-      toOptionArray(
-        allAgreementRows.flatMap((row) =>
-          splitCommaSeparated(row.states === "—" ? "" : row.states)
-        )
-      ),
-    [allAgreementRows]
-  );
+    return permissions.managedChapterNames
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({
+        id: name,
+        name,
+        code: null,
+      }));
+  }, [
+    permissions.isSystemAdmin,
+    permissions.managedChapterIds,
+    permissions.managedChapterNames,
+    publicChapterOptions,
+  ]);
 
   const scopedRows = useMemo(() => {
     if (permissions.isSystemAdmin) return allAgreementRows;
     if (!permissions.isChapterAdmin) return allAgreementRows;
 
-    const managedKeys = new Set(
-      permissions.managedChapterNames.map((chapterName) =>
-        normalizeChapterKey(chapterName)
-      )
-    );
-
     return allAgreementRows.filter((row) =>
-      managedKeys.has(normalizeChapterKey(row.chapter))
+      isVisibleToChapterAdmin(row, permissions.managedChapterNames)
     );
   }, [
     allAgreementRows,
@@ -899,18 +736,13 @@ export default function ManageAgreementsPageClient() {
 
   const baseRows = useMemo(() => {
     const source = searchRows ?? scopedRows;
+
     if (permissions.isSystemAdmin || !permissions.isChapterAdmin) {
       return source;
     }
 
-    const managedKeys = new Set(
-      permissions.managedChapterNames.map((chapterName) =>
-        normalizeChapterKey(chapterName)
-      )
-    );
-
     return source.filter((row) =>
-      managedKeys.has(normalizeChapterKey(row.chapter))
+      isVisibleToChapterAdmin(row, permissions.managedChapterNames)
     );
   }, [
     searchRows,
@@ -919,6 +751,51 @@ export default function ManageAgreementsPageClient() {
     permissions.isChapterAdmin,
     permissions.managedChapterNames,
   ]);
+
+  const visibleRowsForOptions = useMemo(() => {
+    if (permissions.isSystemAdmin) return allAgreementRows;
+    return scopedRows;
+  }, [allAgreementRows, scopedRows, permissions.isSystemAdmin]);
+
+  const chapterOptions = useMemo(
+    () =>
+      toOptionArray(
+        visibleRowsForOptions
+          .map((row) => normalizeValue(row.chapter))
+          .filter((value) => value && value !== "—")
+      ),
+    [visibleRowsForOptions]
+  );
+
+  const localUnionOptions = useMemo(
+    () =>
+      toOptionArray(
+        visibleRowsForOptions.flatMap((row) =>
+          splitCommaSeparated(row.localUnion === "—" ? "" : row.localUnion)
+        )
+      ),
+    [visibleRowsForOptions]
+  );
+
+  const agreementTypeOptions = useMemo(
+    () =>
+      toOptionArray(
+        visibleRowsForOptions
+          .map((row) => normalizeValue(row.agreementType))
+          .filter((value) => value && value !== "—")
+      ),
+    [visibleRowsForOptions]
+  );
+
+  const stateOptions = useMemo(
+    () =>
+      toOptionArray(
+        visibleRowsForOptions.flatMap((row) =>
+          splitCommaSeparated(row.states === "—" ? "" : row.states)
+        )
+      ),
+    [visibleRowsForOptions]
+  );
 
   const filteredAgreementRows = useMemo(() => {
     const nameNeedle = agreementNameQuery.trim().toLowerCase();
@@ -1029,9 +906,7 @@ export default function ManageAgreementsPageClient() {
             filteredAgreementRows={statusFilteredRows}
             agreementNameQuery={agreementNameQuery}
             contentSearchQuery={contentSearchQuery}
-            chapterOptions={
-              permissions.isSystemAdmin ? chapterOptions : allowedChapterOptions
-            }
+            chapterOptions={chapterOptions}
             localUnionOptions={localUnionOptions}
             agreementTypeOptions={agreementTypeOptions}
             stateOptions={stateOptions}
@@ -1061,192 +936,18 @@ export default function ManageAgreementsPageClient() {
             onDeleteAgreement={deleteAgreement}
             isDeletingAgreementId={isDeletingAgreementId}
             canManageAgreements={!permissionsLoading && permissions.canManageAgreements}
+            canManageAgreement={canManageAgreementRow}
           />
         </div>
 
         {showPreviewPane && (
-          <div
-            style={{
-              minWidth: 0,
-              position: "sticky",
-              top: 16,
-              alignSelf: "start",
-            }}
-          >
-            <div
-              style={{
-                borderRadius: 20,
-                border: "1px solid var(--border)",
-                background: "var(--panel)",
-                boxShadow: "var(--shadow-soft)",
-                overflow: "hidden",
-                display: "grid",
-                gridTemplateRows: "auto minmax(78vh, calc(100vh - 180px))",
-              }}
-            >
-              {/* Header */}
-              <div
-                style={{
-                  padding: "12px 14px",
-                  borderBottom: "1px solid var(--border)",
-                  background:
-                    "linear-gradient(180deg, rgba(148,163,184,0.06), rgba(148,163,184,0.02))",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  flexWrap: "wrap",
-                }}
-              >
-                <div
-                  style={{
-                    minWidth: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 800,
-                      color: "var(--foreground)",
-                      lineHeight: 1.2,
-                    }}
-                    title={previewData?.agreementName || ""}
-                  >
-                    {previewData?.agreementName || "Loading agreement..."}
-                  </div>
-
-                  {previewData?.filename && (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: "var(--muted)",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        maxWidth: 220,
-                      }}
-                      title={previewData.filename}
-                    >
-                      {previewData.filename}
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    flexShrink: 0,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {previewData?.fileUrl && (
-                    <>
-                      <a
-                        href={previewData.fileUrl}
-                        download={previewData.filename || undefined}
-                        style={styles.primaryBtn}
-                      >
-                        Download
-                      </a>
-                      <a
-                        href={previewData.fileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={styles.subtleBtn}
-                      >
-                        Open in New Tab
-                      </a>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={closePreviewPanel}
-                    style={styles.subtleBtn}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-
-              {/* Body */}
-              <div style={{ minHeight: 0, background: "#fff", display: "grid" }}>
-                {previewLoading && (
-                  <div
-                    style={{
-                      padding: 18,
-                      color: "var(--muted-strong)",
-                      fontWeight: 700,
-                    }}
-                  >
-                    Loading agreement preview…
-                  </div>
-                )}
-
-                {previewError && (
-                  <div style={{ padding: 18 }}>
-                    <div style={styles.errorBox}>
-                      <b>Preview error:</b> {previewError}
-                    </div>
-                  </div>
-                )}
-
-                {!previewLoading && !previewError && previewData?.fileUrl ? (
-                  previewData.canPreviewInline ? (
-                    previewData.mimeType === "application/pdf" ? (
-                      <AgreementPdfViewer
-                        fileUrl={previewData.fileUrl}
-                        searchQuery={previewInitialSearchQuery}
-                      />
-                    ) : (
-                      <iframe
-                        title={previewData.filename || "Agreement preview"}
-                        src={previewData.fileUrl}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          border: "none",
-                          background: "#fff",
-                        }}
-                      />
-                    )
-                  ) : (
-                    <div
-                      style={{
-                        padding: 24,
-                        display: "grid",
-                        gap: 12,
-                        alignContent: "start",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontWeight: 800,
-                          fontSize: 18,
-                          color: "var(--foreground)",
-                        }}
-                      >
-                        Inline preview is not available for this file type.
-                      </div>
-                      <div style={{ color: "var(--muted)" }}>
-                        Use the buttons above to download the agreement or open
-                        it in a new tab.
-                      </div>
-                    </div>
-                  )
-                ) : !previewLoading && !previewError ? (
-                  <div style={{ padding: 24, color: "var(--muted)" }}>
-                    No preview is available for this agreement.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          <AgreementPreviewPanel
+            previewLoading={previewLoading}
+            previewError={previewError}
+            previewData={previewData}
+            previewInitialSearchQuery={previewInitialSearchQuery}
+            onClose={closePreviewPanel}
+          />
         )}
       </div>
 
@@ -1266,14 +967,10 @@ export default function ManageAgreementsPageClient() {
         dragActive={dragActive}
         uploadStatus={uploadStatus}
         uploadError={uploadError}
-        chapterOptions={
-          permissions.isSystemAdmin
-            ? chapterOptions.map((option) => option.value)
-            : permissions.managedChapterNames
-        }
+        chapterOptions={managedChapterPickerOptions}
         chapterLocked={
           !permissions.isSystemAdmin &&
-          permissions.managedChapterNames.length === 1
+          managedChapterPickerOptions.length === 1
         }
         fileInputRef={fileInputRef}
         onClose={closeUploadModal}
@@ -1290,223 +987,36 @@ export default function ManageAgreementsPageClient() {
         onUpload={uploadAgreement}
       />
 
-      {isEditModalOpen && (
-        <div style={styles.modalOverlay} onClick={closeEditModal}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <div>
-                <div style={styles.sectionTitle}>Edit Agreement</div>
-                <div style={styles.sectionSubtext}>
-                  All fields are required. Update the stored metadata for this agreement.
-                </div>
-              </div>
-
-              <button
-                onClick={closeEditModal}
-                disabled={isSavingEdit}
-                style={{
-                  ...styles.subtleBtn,
-                  ...(isSavingEdit ? styles.btnDisabled : null),
-                }}
-              >
-                Close
-              </button>
-            </div>
-
-            <div style={styles.modalBody}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <label style={labelStyle}>Agreement Name {requiredMark}</label>
-                  <input
-                    type="text"
-                    value={editAgreementName}
-                    onChange={(e) => setEditAgreementName(e.target.value)}
-                    style={styles.input}
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Chapter {requiredMark}</label>
-                  {!permissions.isSystemAdmin &&
-                  permissions.managedChapterNames.length === 1 ? (
-                    <input type="text" value={editChapter} style={styles.input} disabled />
-                  ) : (
-                    <>
-                      <input
-                        type="text"
-                        list="edit-chapter-options"
-                        value={editChapter}
-                        onChange={(e) => setEditChapter(e.target.value)}
-                        style={styles.input}
-                      />
-                      <datalist id="edit-chapter-options">
-                        {(permissions.isSystemAdmin
-                          ? chapterOptions.map((option) => option.value)
-                          : permissions.managedChapterNames
-                        ).map((option) => (
-                          <option key={option} value={option} />
-                        ))}
-                      </datalist>
-                    </>
-                  )}
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Local Union(s) {requiredMark}</label>
-                  <input
-                    type="text"
-                    value={editLocalUnion}
-                    onChange={(e) => setEditLocalUnion(e.target.value)}
-                    style={styles.input}
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Agreement Type {requiredMark}</label>
-                  <input
-                    type="text"
-                    value={editAgreementType}
-                    onChange={(e) => setEditAgreementType(e.target.value)}
-                    style={styles.input}
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Effective From {requiredMark}</label>
-                  <input
-                    type="date"
-                    value={editEffectiveFrom}
-                    onChange={(e) => setEditEffectiveFrom(e.target.value)}
-                    style={styles.input}
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Effective To {requiredMark}</label>
-                  <input
-                    type="date"
-                    value={editEffectiveTo}
-                    onChange={(e) => setEditEffectiveTo(e.target.value)}
-                    style={styles.input}
-                  />
-                </div>
-
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label style={labelStyle}>State(s) {requiredMark}</label>
-                  <input
-                    type="text"
-                    value={editStates}
-                    onChange={(e) => setEditStates(e.target.value)}
-                    style={styles.input}
-                    placeholder="e.g. LA or LA, MS"
-                  />
-                </div>
-
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      fontWeight: 700,
-                      fontSize: 13,
-                      color: "var(--muted-strong)",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editShareToNationalDatabase}
-                      onChange={(e) =>
-                        setEditShareToNationalDatabase(e.target.checked)
-                      }
-                    />
-                    Share to National Agreement Database
-                  </label>
-                </div>
-              </div>
-
-              {editStatus && (
-                <div style={{ marginTop: 16 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 8,
-                      gap: 12,
-                    }}
-                  >
-                    <div style={{ color: "var(--muted-strong)", fontWeight: 700 }}>
-                      {editStatus}
-                    </div>
-                    <div style={{ color: "var(--muted)", fontSize: 13, fontWeight: 700 }}>
-                      {getEditProgressPercent(editStatus)}%
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      height: 10,
-                      borderRadius: 999,
-                      background: "rgba(31, 58, 95, 0.10)",
-                      overflow: "hidden",
-                      border: "1px solid rgba(31, 58, 95, 0.08)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${getEditProgressPercent(editStatus)}%`,
-                        height: "100%",
-                        borderRadius: 999,
-                        background: "var(--brand-gradient)",
-                        transition: "width 280ms ease",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {editError && (
-                <div style={{ ...styles.errorBox, marginTop: 16 }}>
-                  <b>Save error:</b> {editError}
-                </div>
-              )}
-            </div>
-
-            <div style={styles.modalFooter}>
-              <button
-                type="button"
-                onClick={closeEditModal}
-                disabled={isSavingEdit}
-                style={{
-                  ...styles.btn,
-                  ...(isSavingEdit ? styles.btnDisabled : null),
-                }}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={saveEdit}
-                disabled={isSavingEdit}
-                style={{
-                  ...styles.primaryBtn,
-                  ...(isSavingEdit ? styles.btnDisabled : null),
-                }}
-              >
-                {isSavingEdit ? "Saving…" : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EditAgreementModal
+        isOpen={isEditModalOpen}
+        isSavingEdit={isSavingEdit}
+        editAgreementName={editAgreementName}
+        editChapter={editChapter}
+        editLocalUnion={editLocalUnion}
+        editAgreementType={editAgreementType}
+        editStates={editStates}
+        editEffectiveFrom={editEffectiveFrom}
+        editEffectiveTo={editEffectiveTo}
+        editShareToNationalDatabase={editShareToNationalDatabase}
+        editError={editError}
+        editStatus={editStatus}
+        chapterOptions={managedChapterPickerOptions}
+        chapterLocked={
+          !permissions.isSystemAdmin &&
+          managedChapterPickerOptions.length === 1
+        }
+        publicChaptersLoading={publicChaptersLoading}
+        onClose={closeEditModal}
+        onSave={saveEdit}
+        onEditAgreementNameChange={setEditAgreementName}
+        onEditChapterChange={setEditChapter}
+        onEditLocalUnionChange={setEditLocalUnion}
+        onEditAgreementTypeChange={setEditAgreementType}
+        onEditStatesChange={setEditStates}
+        onEditEffectiveFromChange={setEditEffectiveFrom}
+        onEditEffectiveToChange={setEditEffectiveTo}
+        onEditShareToNationalDatabaseChange={setEditShareToNationalDatabase}
+      />
     </div>
   );
 }
