@@ -36,6 +36,11 @@ type AccessRequestsResponse = {
 
 type StatusFilter = "ALL" | "PENDING" | "APPROVED" | "DENIED";
 
+type AccessRequestsClientProps = {
+  refreshVersion: number;
+  onDataChanged: () => void;
+};
+
 function roleLabel(value: "USER" | "CHAPTER_ADMIN") {
   return value === "CHAPTER_ADMIN" ? "Chapter Staff" : "Member Contractor";
 }
@@ -58,7 +63,10 @@ function formatRequestedChapters(request: AccessRequestRow): string {
   return "—";
 }
 
-export default function AccessRequestsClient() {
+export default function AccessRequestsClient({
+  refreshVersion,
+  onDataChanged,
+}: AccessRequestsClientProps) {
   const [requests, setRequests] = useState<AccessRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +80,10 @@ export default function AccessRequestsClient() {
   const [adminNotes, setAdminNotes] = useState("");
   const [denialReason, setDenialReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [activationUrl, setActivationUrl] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   async function loadRequests() {
     try {
@@ -98,7 +109,7 @@ export default function AccessRequestsClient() {
 
   useEffect(() => {
     loadRequests();
-  }, []);
+  }, [refreshVersion]);
 
   const filteredRequests = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -141,14 +152,18 @@ export default function AccessRequestsClient() {
     setAdminNotes(request.adminNotes ?? "");
     setDenialReason(request.denialReason ?? "");
     setSaveError(null);
+    setActivationUrl(null);
+    setCopyStatus(null);
   }
 
   function closeRequest() {
-    if (saving) return;
+    if (saving || deleting) return;
     setSelectedRequest(null);
     setAdminNotes("");
     setDenialReason("");
     setSaveError(null);
+    setActivationUrl(null);
+    setCopyStatus(null);
   }
 
   async function updateRequest(status: "PENDING" | "APPROVED" | "DENIED") {
@@ -157,6 +172,7 @@ export default function AccessRequestsClient() {
     try {
       setSaving(true);
       setSaveError(null);
+      setCopyStatus(null);
 
       const res = await fetch(
         `/api/admin/access-requests/${encodeURIComponent(selectedRequest.id)}`,
@@ -177,14 +193,69 @@ export default function AccessRequestsClient() {
         throw new Error(data?.error ?? "Failed to update access request.");
       }
 
+      setActivationUrl(
+        typeof data?.activationUrl === "string" && data.activationUrl
+          ? data.activationUrl
+          : null
+      );
+
       await loadRequests();
-      closeRequest();
+      onDataChanged();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to update access request.";
       setSaveError(message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteRequest() {
+    if (!selectedRequest) return;
+
+    const confirmed = window.confirm(
+      `Delete the access request for ${selectedRequest.firstName} ${selectedRequest.lastName}? This cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeleting(true);
+      setSaveError(null);
+
+      const res = await fetch(
+        `/api/admin/access-requests/${encodeURIComponent(selectedRequest.id)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Failed to delete access request.");
+      }
+
+      await loadRequests();
+      onDataChanged();
+      closeRequest();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to delete access request.";
+      setSaveError(message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function copyActivationUrl() {
+    if (!activationUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(activationUrl);
+      setCopyStatus("Activation link copied.");
+    } catch {
+      setCopyStatus("Could not copy automatically. Please copy it manually.");
     }
   }
 
@@ -394,14 +465,14 @@ export default function AccessRequestsClient() {
               <button
                 type="button"
                 onClick={closeRequest}
-                disabled={saving}
+                disabled={saving || deleting}
                 style={{
                   border: "1px solid var(--border)",
                   background: "var(--panel)",
                   borderRadius: 10,
                   padding: "8px 12px",
                   fontWeight: 700,
-                  cursor: saving ? "not-allowed" : "pointer",
+                  cursor: saving || deleting ? "not-allowed" : "pointer",
                 }}
               >
                 Close
@@ -517,6 +588,60 @@ export default function AccessRequestsClient() {
                 />
               </label>
 
+              {activationUrl ? (
+                <div
+                  style={{
+                    borderRadius: 14,
+                    border: "1px solid rgba(43, 110, 82, 0.25)",
+                    background: "rgba(43, 110, 82, 0.08)",
+                    padding: 14,
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ fontWeight: 800 }}>Activation link created</div>
+                  <div style={{ color: "var(--muted-strong)", fontSize: 14 }}>
+                    Send this link to the user so they can create their password.
+                  </div>
+                  <textarea
+                    readOnly
+                    value={activationUrl}
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      borderRadius: 12,
+                      border: "1px solid var(--border)",
+                      padding: "12px 14px",
+                      background: "white",
+                      resize: "vertical",
+                      fontFamily: "var(--font-geist-mono), monospace",
+                      fontSize: 13,
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={copyActivationUrl}
+                      style={{
+                        border: "1px solid var(--border)",
+                        background: "var(--panel)",
+                        borderRadius: 10,
+                        padding: "10px 14px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Copy Link
+                    </button>
+                    {copyStatus ? (
+                      <span style={{ color: "var(--muted)", fontSize: 13 }}>
+                        {copyStatus}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {saveError ? (
                 <div
                   style={{
@@ -546,25 +671,43 @@ export default function AccessRequestsClient() {
             >
               <button
                 type="button"
-                onClick={() => updateRequest("PENDING")}
-                disabled={saving}
+                onClick={deleteRequest}
+                disabled={saving || deleting}
                 style={{
-                  border: "1px solid var(--border)",
-                  background: "var(--panel)",
+                  border: "1px solid rgba(169, 68, 68, 0.25)",
+                  background: "rgba(169, 68, 68, 0.08)",
+                  color: "var(--danger)",
                   borderRadius: 10,
                   padding: "10px 14px",
                   fontWeight: 700,
-                  cursor: saving ? "not-allowed" : "pointer",
+                  cursor: saving || deleting ? "not-allowed" : "pointer",
+                  opacity: saving || deleting ? 0.7 : 1,
                 }}
               >
-                Mark Pending
+                {deleting ? "Deleting..." : "Delete Request"}
               </button>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
                   type="button"
+                  onClick={() => updateRequest("PENDING")}
+                  disabled={saving || deleting}
+                  style={{
+                    border: "1px solid var(--border)",
+                    background: "var(--panel)",
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    fontWeight: 700,
+                    cursor: saving || deleting ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Mark Pending
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => updateRequest("DENIED")}
-                  disabled={saving}
+                  disabled={saving || deleting}
                   style={{
                     border: "1px solid rgba(169, 68, 68, 0.25)",
                     background: "rgba(169, 68, 68, 0.08)",
@@ -572,7 +715,7 @@ export default function AccessRequestsClient() {
                     borderRadius: 10,
                     padding: "10px 14px",
                     fontWeight: 700,
-                    cursor: saving ? "not-allowed" : "pointer",
+                    cursor: saving || deleting ? "not-allowed" : "pointer",
                   }}
                 >
                   {saving ? "Saving..." : "Deny"}
@@ -581,7 +724,7 @@ export default function AccessRequestsClient() {
                 <button
                   type="button"
                   onClick={() => updateRequest("APPROVED")}
-                  disabled={saving}
+                  disabled={saving || deleting}
                   style={{
                     border: "none",
                     background: "var(--brand-gradient)",
@@ -589,8 +732,8 @@ export default function AccessRequestsClient() {
                     borderRadius: 10,
                     padding: "10px 14px",
                     fontWeight: 700,
-                    cursor: saving ? "not-allowed" : "pointer",
-                    opacity: saving ? 0.7 : 1,
+                    cursor: saving || deleting ? "not-allowed" : "pointer",
+                    opacity: saving || deleting ? 0.7 : 1,
                   }}
                 >
                   {saving ? "Saving..." : "Approve"}

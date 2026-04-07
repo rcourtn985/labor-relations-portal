@@ -52,11 +52,17 @@ type EditableMembership = {
   role: MembershipRole;
 };
 
+type ActiveUsersClientProps = {
+  refreshVersion: number;
+};
+
 function roleLabel(value: MembershipRole) {
   return value === "CHAPTER_ADMIN" ? "Chapter Staff" : "Member Contractor";
 }
 
-export default function ActiveUsersClient() {
+export default function ActiveUsersClient({
+  refreshVersion,
+}: ActiveUsersClientProps) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [chapters, setChapters] = useState<ChapterOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +119,7 @@ export default function ActiveUsersClient() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [refreshVersion]);
 
   const filteredUsers = useMemo(() => {
     const needle = search.trim().toLowerCase();
