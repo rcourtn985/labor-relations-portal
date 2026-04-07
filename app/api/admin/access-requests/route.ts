@@ -24,6 +24,22 @@ export async function GET() {
             code: true,
           },
         },
+        requestedChapters: {
+          select: {
+            chapter: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+          },
+          orderBy: {
+            chapter: {
+              name: "asc",
+            },
+          },
+        },
         reviewedByUser: {
           select: {
             id: true,
@@ -35,34 +51,45 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      requests: requests.map((request) => ({
-        id: request.id,
-        firstName: request.firstName,
-        lastName: request.lastName,
-        email: request.email,
-        phone: request.phone,
-        comments: request.comments,
-        requestedMembershipRole: request.requestedMembershipRole,
-        status: request.status,
-        submittedAt: request.submittedAt.toISOString(),
-        reviewedAt: request.reviewedAt?.toISOString() ?? null,
-        denialReason: request.denialReason,
-        adminNotes: request.adminNotes,
-        chapter: request.requestedChapter
-          ? {
-              id: request.requestedChapter.id,
-              name: request.requestedChapter.name,
-              code: request.requestedChapter.code,
-            }
-          : null,
-        reviewedBy: request.reviewedByUser
-          ? {
-              id: request.reviewedByUser.id,
-              name: request.reviewedByUser.name,
-              email: request.reviewedByUser.email,
-            }
-          : null,
-      })),
+      requests: requests.map((request) => {
+        const requestedChapters = request.requestedChapters
+          .map((item) => item.chapter)
+          .filter(Boolean);
+
+        return {
+          id: request.id,
+          firstName: request.firstName,
+          lastName: request.lastName,
+          email: request.email,
+          phone: request.phone,
+          comments: request.comments,
+          requestedMembershipRole: request.requestedMembershipRole,
+          status: request.status,
+          submittedAt: request.submittedAt.toISOString(),
+          reviewedAt: request.reviewedAt?.toISOString() ?? null,
+          denialReason: request.denialReason,
+          adminNotes: request.adminNotes,
+          chapter: request.requestedChapter
+            ? {
+                id: request.requestedChapter.id,
+                name: request.requestedChapter.name,
+                code: request.requestedChapter.code,
+              }
+            : null,
+          requestedChapters: requestedChapters.map((chapter) => ({
+            id: chapter.id,
+            name: chapter.name,
+            code: chapter.code,
+          })),
+          reviewedBy: request.reviewedByUser
+            ? {
+                id: request.reviewedByUser.id,
+                name: request.reviewedByUser.name,
+                email: request.reviewedByUser.email,
+              }
+            : null,
+        };
+      }),
     });
   } catch (error) {
     const message =

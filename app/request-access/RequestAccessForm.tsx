@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type ChapterOption = {
   id: string;
@@ -35,12 +35,14 @@ export default function RequestAccessForm() {
     useState<RequestedAccessType>("USER");
 
   const [chapterSearch, setChapterSearch] = useState("");
-  const [selectedChapterId, setSelectedChapterId] = useState("");
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
   const [chapterDropdownOpen, setChapterDropdownOpen] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+
+  const chapterPickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     async function loadChapters() {
@@ -68,37 +70,95 @@ export default function RequestAccessForm() {
     loadChapters();
   }, []);
 
-  const filteredChapters = useMemo(() => {
-    const needle = chapterSearch.trim().toLowerCase();
+  useEffect(() => {
+    if (requestedAccessType === "USER" && selectedChapterIds.length > 1) {
+      setSelectedChapterIds((current) => current.slice(0, 1));
+    }
+  }, [requestedAccessType, selectedChapterIds.length]);
 
-    if (!needle) {
-      return chapters.slice(0, MAX_VISIBLE_CHAPTERS);
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!chapterPickerRef.current) return;
+
+      if (!chapterPickerRef.current.contains(event.target as Node)) {
+        setChapterDropdownOpen(false);
+      }
     }
 
-    return chapters
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setChapterDropdownOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  const selectedChapters = useMemo(
+    () =>
+      selectedChapterIds
+        .map((id) => chapters.find((chapter) => chapter.id === id) ?? null)
+        .filter((chapter): chapter is ChapterOption => chapter !== null),
+    [chapters, selectedChapterIds]
+  );
+
+  const filteredChapters = useMemo(() => {
+    const needle = chapterSearch.trim().toLowerCase();
+    const selectedSet = new Set(selectedChapterIds);
+
+    const available = chapters.filter((chapter) => !selectedSet.has(chapter.id));
+
+    if (!needle) {
+      return available.slice(0, MAX_VISIBLE_CHAPTERS);
+    }
+
+    return available
       .filter((chapter) =>
         `${chapter.name} ${chapter.code ?? ""}`.toLowerCase().includes(needle)
       )
       .slice(0, MAX_VISIBLE_CHAPTERS);
-  }, [chapters, chapterSearch]);
+  }, [chapters, chapterSearch, selectedChapterIds]);
 
-  const selectedChapter = useMemo(
-    () => chapters.find((chapter) => chapter.id === selectedChapterId) ?? null,
-    [chapters, selectedChapterId]
-  );
+  function addChapter(chapter: ChapterOption) {
+    setSelectedChapterIds((current) => {
+      if (requestedAccessType === "USER") {
+        return [chapter.id];
+      }
 
-  function selectChapter(chapter: ChapterOption) {
-    setSelectedChapterId(chapter.id);
-    setChapterSearch(chapter.name);
-    setChapterDropdownOpen(false);
+      if (current.includes(chapter.id)) {
+        return current;
+      }
+
+      return [...current, chapter.id];
+    });
+
+    setChapterSearch("");
+    setChapterDropdownOpen(requestedAccessType === "CHAPTER_ADMIN");
+  }
+
+  function removeChapter(chapterId: string) {
+    setSelectedChapterIds((current) =>
+      current.filter((id) => id !== chapterId)
+    );
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
 
-    if (!selectedChapterId) {
-      setSubmitError("Please select your Chapter from the list.");
+    if (selectedChapterIds.length === 0) {
+      setSubmitError("Please select at least one Chapter from the list.");
+      return;
+    }
+
+    if (requestedAccessType === "USER" && selectedChapterIds.length !== 1) {
+      setSubmitError("Member Contractor requests must include exactly one Chapter.");
       return;
     }
 
@@ -115,7 +175,7 @@ export default function RequestAccessForm() {
           lastName,
           email,
           phone,
-          requestedChapterId: selectedChapterId,
+          requestedChapterIds: selectedChapterIds,
           requestedMembershipRole: requestedAccessType,
           comments,
         }),
@@ -315,20 +375,31 @@ export default function RequestAccessForm() {
         </div>
       </div>
 
-      <div style={{ position: "relative", display: "grid", gap: 6 }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>Chapter</span>
+      <div
+        ref={chapterPickerRef}
+        style={{ position: "relative", display: "grid", gap: 8 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>
+            {requestedAccessType === "CHAPTER_ADMIN" ? "Chapters" : "Chapter"}
+          </span>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>
+            {requestedAccessType === "CHAPTER_ADMIN"
+              ? "Select one or more chapters"
+              : "Select exactly one chapter"}
+          </span>
+        </div>
+
         <input
           type="text"
-          required
           value={chapterSearch}
           onFocus={() => setChapterDropdownOpen(true)}
           onChange={(event) => {
             setChapterSearch(event.target.value);
-            setSelectedChapterId("");
             setChapterDropdownOpen(true);
           }}
           placeholder={
-            chaptersLoading ? "Loading chapters..." : "Start typing your chapter name"
+            chaptersLoading ? "Loading chapters..." : "Start typing chapter name"
           }
           style={{
             width: "100%",
@@ -342,6 +413,48 @@ export default function RequestAccessForm() {
         {chaptersError ? (
           <div style={{ color: "var(--danger)", fontSize: 13 }}>
             {chaptersError}
+          </div>
+        ) : null}
+
+        {selectedChapters.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {selectedChapters.map((chapter) => (
+              <div
+                key={chapter.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  borderRadius: 999,
+                  border: "1px solid var(--border)",
+                  background: "var(--panel-soft)",
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                <span>
+                  {chapter.name}
+                  {chapter.code ? ` (${chapter.code})` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeChapter(chapter.id)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 14,
+                    lineHeight: 1,
+                    color: "var(--muted-strong)",
+                  }}
+                  aria-label={`Remove ${chapter.name}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
           </div>
         ) : null}
 
@@ -367,7 +480,7 @@ export default function RequestAccessForm() {
                 <button
                   key={chapter.id}
                   type="button"
-                  onClick={() => selectChapter(chapter)}
+                  onClick={() => addChapter(chapter)}
                   style={{
                     display: "block",
                     width: "100%",
@@ -400,13 +513,6 @@ export default function RequestAccessForm() {
                 No chapters found.
               </div>
             )}
-          </div>
-        ) : null}
-
-        {selectedChapter ? (
-          <div style={{ fontSize: 13, color: "var(--muted)" }}>
-            Selected: {selectedChapter.name}
-            {selectedChapter.code ? ` (${selectedChapter.code})` : ""}
           </div>
         ) : null}
       </div>

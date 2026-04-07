@@ -3,6 +3,18 @@ import { prisma } from "@/lib/prisma";
 
 const SITE_ADMIN_EMAIL = "site-admin-placeholder@example.com";
 
+type RequestedMembershipRole = "USER" | "CHAPTER_ADMIN";
+
+function normalizeRequestedChapterIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return [...new Set(
+    value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean)
+  )];
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -14,16 +26,16 @@ export async function POST(req: Request) {
     const email =
       typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    const requestedChapterId =
-      typeof body.requestedChapterId === "string"
-        ? body.requestedChapterId.trim()
-        : "";
     const requestedMembershipRole =
       typeof body.requestedMembershipRole === "string"
         ? body.requestedMembershipRole.trim().toUpperCase()
         : "";
     const comments =
       typeof body.comments === "string" ? body.comments.trim() : "";
+
+    const requestedChapterIds = normalizeRequestedChapterIds(
+      body.requestedChapterIds
+    );
 
     if (!firstName) {
       return NextResponse.json({ error: "First Name is required." }, { status: 400 });
@@ -37,10 +49,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Email is required." }, { status: 400 });
     }
 
-    if (!requestedChapterId) {
-      return NextResponse.json({ error: "Chapter is required." }, { status: 400 });
-    }
-
     if (!["USER", "CHAPTER_ADMIN"].includes(requestedMembershipRole)) {
       return NextResponse.json(
         { error: "Requested access type is required." },
@@ -48,18 +56,35 @@ export async function POST(req: Request) {
       );
     }
 
-    const chapter = await prisma.chapter.findFirst({
+    if (requestedChapterIds.length === 0) {
+      return NextResponse.json(
+        { error: "At least one Chapter is required." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      requestedMembershipRole === "USER" &&
+      requestedChapterIds.length !== 1
+    ) {
+      return NextResponse.json(
+        { error: "Member Contractor requests must include exactly one Chapter." },
+        { status: 400 }
+      );
+    }
+
+    const chapters = await prisma.chapter.findMany({
       where: {
-        id: requestedChapterId,
+        id: { in: requestedChapterIds },
         isActive: true,
         deletedAt: null,
       },
       select: { id: true },
     });
 
-    if (!chapter) {
+    if (chapters.length !== requestedChapterIds.length) {
       return NextResponse.json(
-        { error: "Selected Chapter is invalid." },
+        { error: "One or more selected Chapters are invalid." },
         { status: 400 }
       );
     }
@@ -145,29 +170,54 @@ export async function POST(req: Request) {
       }
     }
 
+    const primaryRequestedChapterId = requestedChapterIds[0] ?? null;
+
     const accessRequest = await prisma.accessRequest.create({
       data: {
         firstName,
         lastName,
         email,
         phone: phone || null,
-        requestedChapterId,
+        requestedChapterId: primaryRequestedChapterId,
         requestedMembershipRole:
-          requestedMembershipRole as "USER" | "CHAPTER_ADMIN",
+          requestedMembershipRole as RequestedMembershipRole,
         comments: comments || null,
         status: "PENDING",
+        requestedChapters: {
+          create: requestedChapterIds.map((chapterId) => ({
+            chapterId,
+          })),
+        },
       },
       select: {
         id: true,
         email: true,
         status: true,
         submittedAt: true,
+        requestedChapterId: true,
+        requestedChapters: {
+          select: {
+            chapterId: true,
+          },
+          orderBy: {
+            chapterId: "asc",
+          },
+        },
       },
     });
 
     return NextResponse.json({
       ok: true,
-      accessRequest,
+      accessRequest: {
+        id: accessRequest.id,
+        email: accessRequest.email,
+        status: accessRequest.status,
+        submittedAt: accessRequest.submittedAt,
+        requestedChapterId: accessRequest.requestedChapterId,
+        requestedChapterIds: accessRequest.requestedChapters.map(
+          (chapter) => chapter.chapterId
+        ),
+      },
     });
   } catch (error) {
     const message =

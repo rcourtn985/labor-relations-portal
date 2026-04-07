@@ -103,7 +103,8 @@ model Chapter {
   deletedAt DateTime?
 
   memberships             ChapterMembership[]
-  requestedAccesses       AccessRequest[]
+  requestedAccesses       AccessRequest[]          @relation("AccessRequestPrimaryChapter")
+  requestedAccessChapters AccessRequestChapter[]
   knowledgeBases          KnowledgeBase[]
   documents               Document[]
   agreementDownloadEvents AgreementDownloadEvent[]
@@ -147,13 +148,28 @@ model AccessRequest {
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @default(now()) @updatedAt
 
-  requestedChapter Chapter? @relation(fields: [requestedChapterId], references: [id], onDelete: SetNull)
-  reviewedByUser   User?    @relation("AccessRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  requestedChapter  Chapter?               @relation("AccessRequestPrimaryChapter", fields: [requestedChapterId], references: [id], onDelete: SetNull)
+  requestedChapters AccessRequestChapter[]
+  reviewedByUser    User?                  @relation("AccessRequestReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([status, submittedAt])
   @@index([email])
   @@index([requestedChapterId])
   @@index([requestedMembershipRole])
+}
+
+model AccessRequestChapter {
+  id              String   @id @default(cuid())
+  accessRequestId String
+  chapterId       String
+  createdAt       DateTime @default(now())
+
+  accessRequest AccessRequest @relation(fields: [accessRequestId], references: [id], onDelete: Cascade)
+  chapter       Chapter       @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@unique([accessRequestId, chapterId])
+  @@index([chapterId])
+  @@index([accessRequestId])
 }
 
 model KnowledgeBase {

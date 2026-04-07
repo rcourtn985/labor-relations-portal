@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type RequestedChapter = {
+  id: string;
+  name: string;
+  code: string | null;
+};
+
 type AccessRequestRow = {
   id: string;
   firstName: string;
@@ -15,11 +21,8 @@ type AccessRequestRow = {
   reviewedAt: string | null;
   denialReason: string | null;
   adminNotes: string | null;
-  chapter: {
-    id: string;
-    name: string;
-    code: string | null;
-  } | null;
+  chapter: RequestedChapter | null;
+  requestedChapters: RequestedChapter[];
   reviewedBy: {
     id: string;
     name: string | null;
@@ -35,6 +38,24 @@ type StatusFilter = "ALL" | "PENDING" | "APPROVED" | "DENIED";
 
 function roleLabel(value: "USER" | "CHAPTER_ADMIN") {
   return value === "CHAPTER_ADMIN" ? "Chapter Staff" : "Member Contractor";
+}
+
+function formatRequestedChapters(request: AccessRequestRow): string {
+  if (request.requestedChapters.length > 0) {
+    return request.requestedChapters
+      .map((chapter) =>
+        chapter.code ? `${chapter.name} (${chapter.code})` : chapter.name
+      )
+      .join(", ");
+  }
+
+  if (request.chapter) {
+    return request.chapter.code
+      ? `${request.chapter.name} (${request.chapter.code})`
+      : request.chapter.name;
+  }
+
+  return "—";
 }
 
 export default function AccessRequestsClient() {
@@ -86,15 +107,25 @@ export default function AccessRequestsClient() {
       const matchesStatus =
         statusFilter === "ALL" || request.status === statusFilter;
 
+      const requestedChapterText = [
+        request.chapter?.name ?? "",
+        request.chapter?.code ?? "",
+        ...request.requestedChapters.flatMap((chapter) => [
+          chapter.name,
+          chapter.code ?? "",
+        ]),
+      ]
+        .join(" ")
+        .toLowerCase();
+
       const haystack = [
         request.firstName,
         request.lastName,
         request.email,
         request.phone ?? "",
-        request.chapter?.name ?? "",
-        request.chapter?.code ?? "",
         request.comments ?? "",
         roleLabel(request.requestedMembershipRole),
+        requestedChapterText,
       ]
         .join(" ")
         .toLowerCase();
@@ -247,8 +278,12 @@ export default function AccessRequestsClient() {
               <tr>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Name</th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Email</th>
-                <th style={{ padding: "12px 14px", textAlign: "left" }}>Requested Access</th>
-                <th style={{ padding: "12px 14px", textAlign: "left" }}>Chapter</th>
+                <th style={{ padding: "12px 14px", textAlign: "left" }}>
+                  Requested Access
+                </th>
+                <th style={{ padding: "12px 14px", textAlign: "left" }}>
+                  Requested Chapters
+                </th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Phone</th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Status</th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Submitted</th>
@@ -281,7 +316,7 @@ export default function AccessRequestsClient() {
                       {roleLabel(request.requestedMembershipRole)}
                     </td>
                     <td style={{ padding: "12px 14px" }}>
-                      {request.chapter?.name ?? "—"}
+                      {formatRequestedChapters(request)}
                     </td>
                     <td style={{ padding: "12px 14px" }}>{request.phone ?? "—"}</td>
                     <td style={{ padding: "12px 14px" }}>{request.status}</td>
@@ -382,19 +417,38 @@ export default function AccessRequestsClient() {
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Requested Access</div>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                    Requested Access
+                  </div>
                   <div style={{ color: "var(--muted-strong)" }}>
                     {roleLabel(selectedRequest.requestedMembershipRole)}
                   </div>
                 </div>
 
                 <div>
-                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Chapter</div>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                    Requested Chapters
+                  </div>
                   <div style={{ color: "var(--muted-strong)" }}>
-                    {selectedRequest.chapter?.name ?? "—"}
-                    {selectedRequest.chapter?.code
-                      ? ` (${selectedRequest.chapter.code})`
-                      : ""}
+                    {selectedRequest.requestedChapters.length > 0 ? (
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {selectedRequest.requestedChapters.map((chapter) => (
+                          <div key={chapter.id}>
+                            {chapter.name}
+                            {chapter.code ? ` (${chapter.code})` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    ) : selectedRequest.chapter ? (
+                      <>
+                        {selectedRequest.chapter.name}
+                        {selectedRequest.chapter.code
+                          ? ` (${selectedRequest.chapter.code})`
+                          : ""}
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </div>
                 </div>
 
