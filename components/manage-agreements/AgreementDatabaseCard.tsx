@@ -146,6 +146,9 @@ export default function AgreementDatabaseCard({
   canManageAgreements = true,
   canManageAgreement,
 }: AgreementDatabaseCardProps) {
+  const showActionsColumn =
+    canManageAgreements || filteredAgreementRows.some((row) => Boolean(row.fileUrl));
+
   return (
     <div
       style={{
@@ -380,10 +383,10 @@ export default function AgreementDatabaseCard({
                 {searchError
                   ? `Search error: ${searchError}`
                   : searchLoading
-                  ? "Searching agreement text…"
-                  : contentSearchQuery.trim()
-                  ? "Showing agreements whose extracted text matches the current search."
-                  : ""}
+                    ? "Searching agreement text…"
+                    : contentSearchQuery.trim()
+                      ? "Showing agreements whose extracted text matches the current search."
+                      : ""}
               </div>
             )}
           </div>
@@ -481,7 +484,7 @@ export default function AgreementDatabaseCard({
                 <th style={styles.th}>States</th>
                 <th style={styles.th}>National Database</th>
                 <th style={styles.th}>Uploaded</th>
-                {canManageAgreements ? <th style={styles.th}>Actions</th> : null}
+                {showActionsColumn ? <th style={styles.th}>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -541,10 +544,10 @@ export default function AgreementDatabaseCard({
                         ? new Date(row.uploadedAt * 1000).toLocaleString()
                         : ""}
                     </td>
-                    {canManageAgreements ? (
+                    {showActionsColumn ? (
                       <td style={styles.td}>
                         {rowCanManage ? (
-                          <div style={{ display: "flex", gap: 6 }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             <button
                               type="button"
                               onClick={() => onOpenEditModal(row)}
