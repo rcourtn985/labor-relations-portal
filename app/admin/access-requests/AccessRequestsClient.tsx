@@ -357,7 +357,9 @@ export default function AccessRequestsClient({
                 </th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Phone</th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Status</th>
-                <th style={{ padding: "12px 14px", textAlign: "left" }}>Submitted</th>
+                <th style={{ padding: "12px 14px", textAlign: "left" }}>
+                  Submitted
+                </th>
                 <th style={{ padding: "12px 14px", textAlign: "left" }}>Action</th>
               </tr>
             </thead>
@@ -426,8 +428,10 @@ export default function AccessRequestsClient({
             inset: 0,
             background: "rgba(16, 24, 40, 0.28)",
             display: "grid",
-            placeItems: "center",
+            alignItems: "start",
+            justifyItems: "center",
             padding: 24,
+            overflowY: "auto",
             zIndex: 100,
           }}
         >
@@ -436,11 +440,14 @@ export default function AccessRequestsClient({
             style={{
               width: "100%",
               maxWidth: 760,
+              marginTop: 24,
+              marginBottom: 24,
+              maxHeight: "calc(100vh - 48px)",
               borderRadius: 20,
               border: "1px solid var(--border)",
               background: "var(--panel)",
               boxShadow: "var(--shadow-strong)",
-              overflow: "hidden",
+              overflow: "auto",
             }}
           >
             <div
@@ -451,6 +458,10 @@ export default function AccessRequestsClient({
                 justifyContent: "space-between",
                 gap: 12,
                 alignItems: "center",
+                position: "sticky",
+                top: 0,
+                background: "var(--panel)",
+                zIndex: 1,
               }}
             >
               <div>
@@ -667,6 +678,9 @@ export default function AccessRequestsClient({
                 justifyContent: "space-between",
                 gap: 12,
                 flexWrap: "wrap",
+                position: "sticky",
+                bottom: 0,
+                background: "var(--panel)",
               }}
             >
               <button

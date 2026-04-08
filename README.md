@@ -29,7 +29,7 @@ The current product direction is:
 - the **Agreement Database** is the primary working surface
 - authenticated access and chapter-based permissions are now part of the core product
 - chat/RAG remains important, but is secondary to the agreement database workflow
-- system administration is expanding to support real user and chapter management before broader alpha use
+- system administration and chapter administration are being expanded to support real user onboarding and chapter-scoped access before broader alpha use
 
 ## Working features
 
@@ -45,7 +45,7 @@ Current capabilities include:
 - in-document PDF viewing with search and highlight
 - text and PDF inline preview support
 - shared/national agreement visibility for chapter admins
-- chapter-admin read-only access to out-of-scope nationally shared agreements with direct download
+- chapter-admin read-only access to out-of-scope nationally shared agreements with direct download from the document viewer
 
 ### Upload and storage
 Uploads currently:
@@ -67,15 +67,40 @@ Current capabilities include:
 - chapter membership support with per-chapter roles
 - chapter admin restrictions for agreement upload/edit/delete
 - public chapter list endpoint used by access-request and admin workflows
+- proxy-based auth gating for protected routes
+- public activation flow for invited users
+
+### Access requests and onboarding
+Access request and onboarding workflows now include:
+- public request-access flow
+- support for single-chapter Member Contractor requests
+- support for multi-chapter Chapter Staff requests
+- admin review of pending requests
+- request deletion for duplicate or mistaken submissions
+- approval provisioning that creates or updates users and chapter memberships
+- invite-token generation on approval
+- activation link generation on approval
+- create-password / activate-account flow that sets the user password and transitions the account to `ACTIVE`
 
 ### System administration
 System administration now includes:
 - access request review
+- access request approval, denial, pending reset, and deletion
 - active user management
 - updating account status
 - assigning and removing chapter memberships
 - setting chapter membership role (`USER` or `CHAPTER_ADMIN`)
 - updating global role (`STANDARD` or `SYSTEM_ADMIN`)
+- approval flow that provisions users without requiring admins to manually set passwords
+
+### Chapter administration
+Chapter administration is now present as a distinct working surface.
+
+Current capabilities include:
+- dedicated chapter admin entry page
+- scoped access-request review for requests that fall entirely within the chapter admin’s assigned chapter scope
+- chapter-admin approval/denial/delete behavior enforced through scoped API access
+- chapter-admin approval flow that also generates invite activation links for in-scope requests
 
 ### Chat / RAG
 The app includes chat workflows that retrieve against agreement-related knowledge bases.
@@ -107,12 +132,15 @@ The schema now supports:
 - chapters
 - chapter memberships
 - access requests
+- access request chapter join records for multi-chapter requests
+- invite tokens
+- password reset tokens
 - knowledge bases
 - documents
 - extracted text storage
 - usage and retrieval event tracking
 
-This supports the long-term goal of hosted, multi-user usage before broader alpha release. The current schema includes user account status, global role, and chapter membership role support. 
+This supports the long-term goal of hosted, multi-user usage before broader alpha release.
 
 ### Original file storage
 Original uploaded files are currently stored locally under:

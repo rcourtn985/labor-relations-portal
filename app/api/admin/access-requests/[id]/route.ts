@@ -12,6 +12,12 @@ type Params = {
 type RequestStatus = "PENDING" | "APPROVED" | "DENIED";
 type MembershipRole = "CHAPTER_ADMIN" | "USER";
 
+type SessionMembership = {
+  chapterId: string;
+  chapterName: string;
+  role: "CHAPTER_ADMIN" | "USER";
+};
+
 function toMembershipRole(
   requestedMembershipRole: "CHAPTER_ADMIN" | "USER"
 ): MembershipRole {
@@ -38,6 +44,26 @@ function getBaseUrl(req: Request): string {
   return url.origin.replace(/\/+$/, "");
 }
 
+function getAdminChapterIds(sessionUser: any): string[] {
+  const memberships = ((sessionUser?.memberships ?? []) as SessionMembership[]).filter(
+    (membership) => membership.role === "CHAPTER_ADMIN"
+  );
+
+  return [
+    ...new Set(
+      memberships.map((membership) => membership.chapterId).filter(Boolean)
+    ),
+  ];
+}
+
+function isRequestWithinAdminScope(
+  requestedChapterIds: string[],
+  adminChapterIds: string[]
+): boolean {
+  if (requestedChapterIds.length === 0) return false;
+  return requestedChapterIds.every((chapterId) => adminChapterIds.includes(chapterId));
+}
+
 export async function PATCH(req: Request, { params }: Params) {
   const session = await auth();
 
@@ -45,7 +71,11 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  if ((session.user as any).globalRole !== "SYSTEM_ADMIN") {
+  const isSystemAdmin = (session.user as any).globalRole === "SYSTEM_ADMIN";
+  const adminChapterIds = getAdminChapterIds(session.user);
+  const isChapterAdmin = adminChapterIds.length > 0;
+
+  if (!isSystemAdmin && !isChapterAdmin) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
@@ -106,6 +136,13 @@ export async function PATCH(req: Request, { params }: Params) {
         ].filter((value): value is string => Boolean(value))
       ),
     ];
+
+    if (
+      !isSystemAdmin &&
+      !isRequestWithinAdminScope(requestedChapterIds, adminChapterIds)
+    ) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
 
     if (status === "APPROVED") {
       if (requestedChapterIds.length === 0) {
@@ -182,7 +219,6 @@ export async function PATCH(req: Request, { params }: Params) {
             },
             select: {
               id: true,
-              accountStatus: true,
             },
           });
 
@@ -325,7 +361,11 @@ export async function DELETE(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  if ((session.user as any).globalRole !== "SYSTEM_ADMIN") {
+  const isSystemAdmin = (session.user as any).globalRole === "SYSTEM_ADMIN";
+  const adminChapterIds = getAdminChapterIds(session.user);
+  const isChapterAdmin = adminChapterIds.length > 0;
+
+  if (!isSystemAdmin && !isChapterAdmin) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
@@ -336,6 +376,12 @@ export async function DELETE(req: Request, { params }: Params) {
       where: { id },
       select: {
         id: true,
+        requestedChapterId: true,
+        requestedChapters: {
+          select: {
+            chapterId: true,
+          },
+        },
       },
     });
 
@@ -344,6 +390,22 @@ export async function DELETE(req: Request, { params }: Params) {
         { error: "Access request not found." },
         { status: 404 }
       );
+    }
+
+    const requestedChapterIds = [
+      ...new Set(
+        [
+          ...existing.requestedChapters.map((item) => item.chapterId),
+          existing.requestedChapterId,
+        ].filter((value): value is string => Boolean(value))
+      ),
+    ];
+
+    if (
+      !isSystemAdmin &&
+      !isRequestWithinAdminScope(requestedChapterIds, adminChapterIds)
+    ) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
     await prisma.accessRequest.delete({
