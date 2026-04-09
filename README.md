@@ -30,18 +30,27 @@ The current product direction is:
 - authenticated access and chapter-based permissions are now part of the core product
 - chat/RAG remains important, but is secondary to the agreement database workflow
 - system administration and chapter administration are being expanded to support real user onboarding and chapter-scoped access before broader alpha use
-- the next major technical focus is likely agreement-list/search scalability and moving more agreement retrieval/filter logic into PostgreSQL-backed server queries rather than broad client-side fan-out loading
+- agreement-list and agreement-search scalability are now an active workstream on the `search-scale` branch
+- the next major structural focus is the **canonical agreement model**, so logical agreements are no longer inferred from multiple raw document rows
 
 ## Working features
 
 ### Agreement database
+
 The main working surface for uploaded agreements.
 
 Current capabilities include:
-- agreement list with filtering by chapter, local union, agreement type, state, and national database visibility
+- agreement list with filtering by chapter, local union, agreement type, state, national database inclusion, and expired agreement visibility
+- agreement list now loaded through a PostgreSQL-backed server route instead of broad KB/file fan-out loading
+- server-side agreement deduplication for logical agreement display
+- server-side pagination for the main agreement list
+- clickable column-header sorting on the agreement list
 - agreement name click-through to open in-app preview
 - agreement metadata editing
 - extracted-text content search
+- content search now honors the currently filtered agreement universe
+- content search now uses the same scope and dedupe model as the main agreement list
+- content-search pagination
 - side-panel agreement preview
 - in-document PDF viewing with search and highlight
 - text and PDF inline preview support
@@ -49,18 +58,22 @@ Current capabilities include:
 - chapter-admin read-only access to out-of-scope nationally shared agreements with direct download from the document viewer
 - direct download button in the agreement database list for read-only users when the agreement is visible to them
 - agreement deletion moved into the Edit Agreement modal rather than the list row actions
+- “Clear All” behavior that resets filters, search, sort, and pagination state
 
 ### Upload and storage
+
 Uploads currently:
-- create or update agreement records
+- create agreement-related document records
 - store original uploaded files locally
 - extract PDF text for agreement content search
 - send files into OpenAI/vector-store workflows used by retrieval/chat
 - support chapter selection during upload based on user permissions
   - system admins can choose from the full chapter list
   - chapter admins are limited to assigned chapters
+- optionally create a nationally shared copy in the `cbas_shared` system knowledge base when the agreement is shared nationally
 
 ### Authentication and access control
+
 Authentication and authorization are now active parts of the application.
 
 Current capabilities include:
@@ -69,6 +82,7 @@ Current capabilities include:
 - global role support (`SYSTEM_ADMIN`, `STANDARD`)
 - chapter membership support with per-chapter roles
 - chapter admin restrictions for agreement upload/edit/delete
+- contractor/read-only users can download visible agreements but cannot upload or remove them
 - public chapter list endpoint used by access-request and admin workflows
 - proxy-based auth gating for protected routes
 - public activation flow for invited users
@@ -77,6 +91,7 @@ Current capabilities include:
 - password reset token generation, validation, expiry handling, and single-use behavior
 
 ### Access requests and onboarding
+
 Access request and onboarding workflows now include:
 - public request-access flow
 - support for single-chapter Member Contractor requests
@@ -89,6 +104,7 @@ Access request and onboarding workflows now include:
 - create-password / activate-account flow that sets the user password and transitions the account to `ACTIVE`
 
 ### System administration
+
 System administration now includes:
 - access request review
 - access request approval, denial, pending reset, and deletion
@@ -100,6 +116,7 @@ System administration now includes:
 - approval flow that provisions users without requiring admins to manually set passwords
 
 ### Chapter administration
+
 Chapter administration is now present as a distinct working surface.
 
 Current capabilities include:
@@ -109,6 +126,7 @@ Current capabilities include:
 - chapter-admin approval flow that also generates invite activation links for in-scope requests
 
 ### Chat / RAG
+
 The app includes chat workflows that retrieve against agreement-related knowledge bases.
 
 Current intent:
@@ -131,6 +149,7 @@ Current intent:
 ## Current architecture notes
 
 ### Database
+
 The project has migrated from SQLite to **PostgreSQL** (hosted on Neon) for development.
 
 The schema now supports:
@@ -149,6 +168,7 @@ The schema now supports:
 This supports the long-term goal of hosted, multi-user usage before broader alpha release.
 
 ### Original file storage
+
 Original uploaded files are currently stored locally under:
 
 ```text
