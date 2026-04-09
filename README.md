@@ -30,6 +30,7 @@ The current product direction is:
 - authenticated access and chapter-based permissions are now part of the core product
 - chat/RAG remains important, but is secondary to the agreement database workflow
 - system administration and chapter administration are being expanded to support real user onboarding and chapter-scoped access before broader alpha use
+- the next major technical focus is likely agreement-list/search scalability and moving more agreement retrieval/filter logic into PostgreSQL-backed server queries rather than broad client-side fan-out loading
 
 ## Working features
 
@@ -46,6 +47,8 @@ Current capabilities include:
 - text and PDF inline preview support
 - shared/national agreement visibility for chapter admins
 - chapter-admin read-only access to out-of-scope nationally shared agreements with direct download from the document viewer
+- direct download button in the agreement database list for read-only users when the agreement is visible to them
+- agreement deletion moved into the Edit Agreement modal rather than the list row actions
 
 ### Upload and storage
 Uploads currently:
@@ -69,6 +72,9 @@ Current capabilities include:
 - public chapter list endpoint used by access-request and admin workflows
 - proxy-based auth gating for protected routes
 - public activation flow for invited users
+- public forgot-password flow
+- public reset-password flow
+- password reset token generation, validation, expiry handling, and single-use behavior
 
 ### Access requests and onboarding
 Access request and onboarding workflows now include:

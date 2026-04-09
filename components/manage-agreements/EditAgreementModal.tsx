@@ -10,6 +10,7 @@ import { getEditProgressPercent } from "./manageAgreementsPageUtils";
 type EditAgreementModalProps = {
   isOpen: boolean;
   isSavingEdit: boolean;
+  isDeletingAgreement?: boolean;
   editAgreementName: string;
   editChapter: string;
   editLocalUnion: string;
@@ -25,6 +26,7 @@ type EditAgreementModalProps = {
   publicChaptersLoading: boolean;
   onClose: () => void;
   onSave: () => void;
+  onDelete?: () => void;
   onEditAgreementNameChange: (value: string) => void;
   onEditChapterChange: (value: string) => void;
   onEditLocalUnionChange: (value: string) => void;
@@ -50,6 +52,7 @@ const requiredMark = (
 export default function EditAgreementModal({
   isOpen,
   isSavingEdit,
+  isDeletingAgreement = false,
   editAgreementName,
   editChapter,
   editLocalUnion,
@@ -65,6 +68,7 @@ export default function EditAgreementModal({
   publicChaptersLoading,
   onClose,
   onSave,
+  onDelete,
   onEditAgreementNameChange,
   onEditChapterChange,
   onEditLocalUnionChange,
@@ -76,8 +80,10 @@ export default function EditAgreementModal({
 }: EditAgreementModalProps) {
   if (!isOpen) return null;
 
+  const isBusy = isSavingEdit || isDeletingAgreement;
+
   return (
-    <div style={styles.modalOverlay} onClick={onClose}>
+    <div style={styles.modalOverlay} onClick={isBusy ? undefined : onClose}>
       <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
         <div style={styles.modalHeader}>
           <div>
@@ -89,10 +95,10 @@ export default function EditAgreementModal({
 
           <button
             onClick={onClose}
-            disabled={isSavingEdit}
+            disabled={isBusy}
             style={{
               ...styles.subtleBtn,
-              ...(isSavingEdit ? styles.btnDisabled : null),
+              ...(isBusy ? styles.btnDisabled : null),
             }}
           >
             Close
@@ -113,6 +119,7 @@ export default function EditAgreementModal({
                 type="text"
                 value={editAgreementName}
                 onChange={(e) => onEditAgreementNameChange(e.target.value)}
+                disabled={isBusy}
                 style={styles.input}
               />
             </div>
@@ -123,7 +130,7 @@ export default function EditAgreementModal({
               value={editChapter}
               options={chapterOptions}
               locked={chapterLocked}
-              disabled={isSavingEdit || publicChaptersLoading}
+              disabled={isBusy || publicChaptersLoading}
               placeholder="Start typing a chapter name"
               onChange={onEditChapterChange}
             />
@@ -134,6 +141,7 @@ export default function EditAgreementModal({
                 type="text"
                 value={editLocalUnion}
                 onChange={(e) => onEditLocalUnionChange(e.target.value)}
+                disabled={isBusy}
                 style={styles.input}
               />
             </div>
@@ -144,6 +152,7 @@ export default function EditAgreementModal({
                 type="text"
                 value={editAgreementType}
                 onChange={(e) => onEditAgreementTypeChange(e.target.value)}
+                disabled={isBusy}
                 style={styles.input}
               />
             </div>
@@ -154,6 +163,7 @@ export default function EditAgreementModal({
                 type="date"
                 value={editEffectiveFrom}
                 onChange={(e) => onEditEffectiveFromChange(e.target.value)}
+                disabled={isBusy}
                 style={styles.input}
               />
             </div>
@@ -164,6 +174,7 @@ export default function EditAgreementModal({
                 type="date"
                 value={editEffectiveTo}
                 onChange={(e) => onEditEffectiveToChange(e.target.value)}
+                disabled={isBusy}
                 style={styles.input}
               />
             </div>
@@ -174,6 +185,7 @@ export default function EditAgreementModal({
                 type="text"
                 value={editStates}
                 onChange={(e) => onEditStatesChange(e.target.value)}
+                disabled={isBusy}
                 style={styles.input}
                 placeholder="e.g. LA or LA, MS"
               />
@@ -193,6 +205,7 @@ export default function EditAgreementModal({
                 <input
                   type="checkbox"
                   checked={editShareToNationalDatabase}
+                  disabled={isBusy}
                   onChange={(e) =>
                     onEditShareToNationalDatabaseChange(e.target.checked)
                   }
@@ -250,30 +263,57 @@ export default function EditAgreementModal({
           )}
         </div>
 
-        <div style={styles.modalFooter}>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSavingEdit}
-            style={{
-              ...styles.btn,
-              ...(isSavingEdit ? styles.btnDisabled : null),
-            }}
-          >
-            Cancel
-          </button>
+        <div
+          style={{
+            ...styles.modalFooter,
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            {onDelete ? (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={isBusy}
+                style={{
+                  ...styles.btn,
+                  ...(isBusy ? styles.btnDisabled : null),
+                  color: isBusy ? undefined : "#991b1b",
+                  borderColor: isBusy ? undefined : "rgba(185,28,28,0.25)",
+                }}
+              >
+                {isDeletingAgreement ? "Deleting…" : "Delete Agreement"}
+              </button>
+            ) : null}
+          </div>
 
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={isSavingEdit}
-            style={{
-              ...styles.primaryBtn,
-              ...(isSavingEdit ? styles.btnDisabled : null),
-            }}
-          >
-            {isSavingEdit ? "Saving…" : "Save Changes"}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isBusy}
+              style={{
+                ...styles.btn,
+                ...(isBusy ? styles.btnDisabled : null),
+              }}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={isBusy}
+              style={{
+                ...styles.primaryBtn,
+                ...(isBusy ? styles.btnDisabled : null),
+              }}
+            >
+              {isSavingEdit ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

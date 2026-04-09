@@ -84,6 +84,7 @@ export default function ManageAgreementsPageClient() {
   const [editEffectiveTo, setEditEffectiveTo] = useState("");
   const [editShareToNationalDatabase, setEditShareToNationalDatabase] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isDeletingFromModal, setIsDeletingFromModal] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
 
@@ -415,7 +416,7 @@ export default function ManageAgreementsPageClient() {
   }
 
   function closeEditModal() {
-    if (isSavingEdit) return;
+    if (isSavingEdit || isDeletingFromModal) return;
     setIsEditModalOpen(false);
   }
 
@@ -577,8 +578,14 @@ export default function ManageAgreementsPageClient() {
     );
     if (!confirmed) return;
 
+    const deletingFromEditModal = isEditModalOpen && editingAgreementId === row.id;
+
     setIsDeletingAgreementId(row.id);
     setError(null);
+
+    if (deletingFromEditModal) {
+      setIsDeletingFromModal(true);
+    }
 
     try {
       const res = await fetch(`/api/agreements/${encodeURIComponent(row.id)}`, {
@@ -594,6 +601,10 @@ export default function ManageAgreementsPageClient() {
         closePreviewPanel();
       }
 
+      if (deletingFromEditModal) {
+        setIsEditModalOpen(false);
+      }
+
       await loadAllAgreements().catch(() =>
         setError("Failed to refresh agreements.")
       );
@@ -601,6 +612,9 @@ export default function ManageAgreementsPageClient() {
       setError(e?.message ?? "Failed to delete agreement.");
     } finally {
       setIsDeletingAgreementId(null);
+      if (deletingFromEditModal) {
+        setIsDeletingFromModal(false);
+      }
     }
   }
 
@@ -990,6 +1004,7 @@ export default function ManageAgreementsPageClient() {
       <EditAgreementModal
         isOpen={isEditModalOpen}
         isSavingEdit={isSavingEdit}
+        isDeletingAgreement={isDeletingFromModal}
         editAgreementName={editAgreementName}
         editChapter={editChapter}
         editLocalUnion={editLocalUnion}
@@ -1008,6 +1023,12 @@ export default function ManageAgreementsPageClient() {
         publicChaptersLoading={publicChaptersLoading}
         onClose={closeEditModal}
         onSave={saveEdit}
+        onDelete={() => {
+          const row = allAgreementRows.find((item) => item.id === editingAgreementId);
+          if (row) {
+            void deleteAgreement(row);
+          }
+        }}
         onEditAgreementNameChange={setEditAgreementName}
         onEditChapterChange={setEditChapter}
         onEditLocalUnionChange={setEditLocalUnion}

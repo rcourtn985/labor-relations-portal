@@ -48,9 +48,11 @@ export default async function LoginPage() {
           }}
         >
           <div>
+            <Link href="/forgot-password">Forgot your password?</Link>
+          </div>
+          <div>
             Need access? <Link href="/request-access">Request an account</Link>
           </div>
-          <div>Forgot password flow will be added next.</div>
         </div>
       </div>
     </div>

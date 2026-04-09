@@ -547,34 +547,17 @@ export default function AgreementDatabaseCard({
                     {showActionsColumn ? (
                       <td style={styles.td}>
                         {rowCanManage ? (
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            <button
-                              type="button"
-                              onClick={() => onOpenEditModal(row)}
-                              disabled={isDeleting}
-                              style={{
-                                ...styles.subtleBtn,
-                                ...(isDeleting ? styles.btnDisabled : null),
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDeleteAgreement(row)}
-                              disabled={isDeleting}
-                              style={{
-                                ...styles.subtleBtn,
-                                ...(isDeleting ? styles.btnDisabled : null),
-                                color: isDeleting ? undefined : "#991b1b",
-                                borderColor: isDeleting
-                                  ? undefined
-                                  : "rgba(185,28,28,0.25)",
-                              }}
-                            >
-                              {isDeleting ? "Deleting…" : "Delete"}
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onOpenEditModal(row)}
+                            disabled={isDeleting}
+                            style={{
+                              ...styles.subtleBtn,
+                              ...(isDeleting ? styles.btnDisabled : null),
+                            }}
+                          >
+                            Edit
+                          </button>
                         ) : row.fileUrl ? (
                           <a
                             href={row.fileUrl}
