@@ -8,7 +8,12 @@ import ManageAgreementsHero from "./ManageAgreementsHero";
 import UploadAgreementModal from "./UploadAgreementModal";
 import { ChapterOption } from "./SearchableChapterSelect";
 import { manageAgreementsStyles as styles } from "./styles";
-import { AgreementListResponse, AgreementRow } from "./types";
+import {
+  AgreementListResponse,
+  AgreementRow,
+  AgreementSearchResponse,
+  AgreementSort,
+} from "./types";
 import { useManageAgreementsAccess } from "./hooks/useManageAgreementsAccess";
 import {
   AgreementPreviewResponse,
@@ -19,6 +24,7 @@ import {
 } from "./manageAgreementsPageUtils";
 
 const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_SORT: AgreementSort = "uploaded_desc";
 
 export default function ManageAgreementsPageClient() {
   const {
@@ -49,6 +55,11 @@ export default function ManageAgreementsPageClient() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(DEFAULT_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
+  const [sort, setSort] = useState<AgreementSort>(DEFAULT_SORT);
+
+  const [searchCurrentPage, setSearchCurrentPage] = useState(1);
+  const [searchTotalCount, setSearchTotalCount] = useState(0);
+  const [searchTotalPages, setSearchTotalPages] = useState(1);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -62,9 +73,7 @@ export default function ManageAgreementsPageClient() {
   const [selectedLocalUnions, setSelectedLocalUnions] = useState<string[]>([]);
   const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>([]);
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
-  const [nationalDatabaseFilter, setNationalDatabaseFilter] = useState<"all" | "shared">(
-    "all"
-  );
+  const [includeNationalDatabase, setIncludeNationalDatabase] = useState(true);
   const [showExpired, setShowExpired] = useState(false);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -111,6 +120,32 @@ export default function ManageAgreementsPageClient() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  function toggleSortForColumn(column: string) {
+    setSort((current) => {
+      switch (column) {
+        case "agreementName":
+          return current === "name_asc" ? "name_desc" : "name_asc";
+        case "chapter":
+          return current === "chapter_asc" ? "chapter_desc" : "chapter_asc";
+        case "localUnion":
+          return current === "local_union_asc"
+            ? "local_union_desc"
+            : "local_union_asc";
+        case "agreementType":
+          return current === "agreement_type_asc"
+            ? "agreement_type_desc"
+            : "agreement_type_asc";
+        case "states":
+          return current === "states_asc" ? "states_desc" : "states_asc";
+        case "effectiveFrom":
+          return current === "effective_asc" ? "effective_desc" : "effective_asc";
+        case "uploadedAt":
+        default:
+          return current === "uploaded_desc" ? "uploaded_asc" : "uploaded_desc";
+      }
+    });
+  }
+
   async function loadAllAgreements() {
     setFilesLoading(true);
     setError(null);
@@ -138,10 +173,11 @@ export default function ManageAgreementsPageClient() {
         params.append("states", value);
       }
 
-      params.set("nationalDatabaseFilter", nationalDatabaseFilter);
+      params.set("includeNationalDatabase", String(includeNationalDatabase));
       params.set("showExpired", String(showExpired));
       params.set("page", String(currentPage));
       params.set("pageSize", String(pageSize));
+      params.set("sort", sort);
 
       const res = await fetch(`/api/agreements?${params.toString()}`, {
         cache: "no-store",
@@ -161,6 +197,7 @@ export default function ManageAgreementsPageClient() {
       setFilteredRowsCount(data.filteredRowsCount ?? 0);
       setTotalPages(data.totalPages ?? 1);
       setCurrentPage(data.page ?? 1);
+      setSort(data.sort ?? DEFAULT_SORT);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load agreements.");
       setAllAgreementRows([]);
@@ -209,18 +246,22 @@ export default function ManageAgreementsPageClient() {
     }
   }
 
-  function clearFilters() {
+  function clearAll() {
     setAgreementNameQuery("");
     setContentSearchQuery("");
     setSearchRows(null);
     setSearchError(null);
+    setSearchTotalCount(0);
+    setSearchTotalPages(1);
+    setSearchCurrentPage(1);
     setSelectedChapters([]);
     setSelectedLocalUnions([]);
     setSelectedAgreementTypes([]);
     setSelectedStates([]);
-    setNationalDatabaseFilter("all");
+    setIncludeNationalDatabase(true);
     setShowExpired(false);
     setCurrentPage(1);
+    setSort(DEFAULT_SORT);
   }
 
   function openUploadModal() {
@@ -504,7 +545,7 @@ export default function ManageAgreementsPageClient() {
 
       if (contentSearchQuery.trim()) {
         setEditStatus("Refreshing agreements...");
-        await runContentSearch(contentSearchQuery);
+        await runContentSearch(contentSearchQuery, searchCurrentPage);
       }
 
       setEditStatus("Done.");
@@ -606,12 +647,14 @@ export default function ManageAgreementsPageClient() {
     }
   }
 
-  async function runContentSearch(query: string) {
+  async function runContentSearch(query: string, page: number = 1) {
     const trimmed = query.trim();
 
     if (!trimmed) {
       setSearchRows(null);
       setSearchError(null);
+      setSearchTotalCount(0);
+      setSearchTotalPages(1);
       return;
     }
 
@@ -619,10 +662,33 @@ export default function ManageAgreementsPageClient() {
     setSearchError(null);
 
     try {
-      const res = await fetch(
-        `/api/agreements/search?q=${encodeURIComponent(trimmed)}`
-      );
-      const data = await res.json();
+      const params = new URLSearchParams();
+      params.set("q", trimmed);
+      params.set("agreementName", agreementNameQuery.trim());
+      params.set("includeNationalDatabase", String(includeNationalDatabase));
+      params.set("showExpired", String(showExpired));
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      params.set("sort", sort);
+
+      for (const value of selectedChapters) {
+        params.append("chapters", value);
+      }
+
+      for (const value of selectedLocalUnions) {
+        params.append("localUnions", value);
+      }
+
+      for (const value of selectedAgreementTypes) {
+        params.append("agreementTypes", value);
+      }
+
+      for (const value of selectedStates) {
+        params.append("states", value);
+      }
+
+      const res = await fetch(`/api/agreements/search?${params.toString()}`);
+      const data = (await res.json()) as AgreementSearchResponse & { error?: string };
 
       if (!res.ok) {
         throw new Error(data?.error ?? "Search failed.");
@@ -652,9 +718,14 @@ export default function ManageAgreementsPageClient() {
       );
 
       setSearchRows(rows);
+      setSearchTotalCount(data.count ?? 0);
+      setSearchTotalPages(data.totalPages ?? 1);
+      setSearchCurrentPage(data.page ?? 1);
     } catch (e: any) {
       setSearchError(e?.message ?? "Search failed.");
       setSearchRows([]);
+      setSearchTotalCount(0);
+      setSearchTotalPages(1);
     } finally {
       setSearchLoading(false);
     }
@@ -674,9 +745,10 @@ export default function ManageAgreementsPageClient() {
     selectedLocalUnions,
     selectedAgreementTypes,
     selectedStates,
-    nationalDatabaseFilter,
+    includeNationalDatabase,
     showExpired,
     pageSize,
+    sort,
   ]);
 
   useEffect(() => {
@@ -687,8 +759,23 @@ export default function ManageAgreementsPageClient() {
     selectedLocalUnions,
     selectedAgreementTypes,
     selectedStates,
-    nationalDatabaseFilter,
+    includeNationalDatabase,
     showExpired,
+    sort,
+  ]);
+
+  useEffect(() => {
+    setSearchCurrentPage(1);
+  }, [
+    contentSearchQuery,
+    agreementNameQuery,
+    selectedChapters,
+    selectedLocalUnions,
+    selectedAgreementTypes,
+    selectedStates,
+    includeNationalDatabase,
+    showExpired,
+    sort,
   ]);
 
   useEffect(() => {
@@ -698,17 +785,31 @@ export default function ManageAgreementsPageClient() {
       setSearchRows(null);
       setSearchError(null);
       setSearchLoading(false);
+      setSearchTotalCount(0);
+      setSearchTotalPages(1);
       return;
     }
 
     const timeout = window.setTimeout(() => {
-      runContentSearch(trimmed);
+      runContentSearch(trimmed, searchCurrentPage);
     }, 300);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [contentSearchQuery]);
+  }, [
+    contentSearchQuery,
+    searchCurrentPage,
+    pageSize,
+    agreementNameQuery,
+    selectedChapters,
+    selectedLocalUnions,
+    selectedAgreementTypes,
+    selectedStates,
+    includeNationalDatabase,
+    showExpired,
+    sort,
+  ]);
 
   const managedChapterPickerOptions = useMemo<ChapterOption[]>(() => {
     if (permissions.isSystemAdmin) {
@@ -823,7 +924,7 @@ export default function ManageAgreementsPageClient() {
             agreementRowsTotal={totalRows}
             filteredAgreementRows={baseRows}
             filteredAgreementRowsCount={
-              contentSearchActive ? baseRows.length : filteredRowsCount
+              contentSearchActive ? searchTotalCount : filteredRowsCount
             }
             agreementNameQuery={agreementNameQuery}
             contentSearchQuery={contentSearchQuery}
@@ -835,23 +936,25 @@ export default function ManageAgreementsPageClient() {
             selectedLocalUnions={selectedLocalUnions}
             selectedAgreementTypes={selectedAgreementTypes}
             selectedStates={selectedStates}
-            nationalDatabaseFilter={nationalDatabaseFilter}
+            includeNationalDatabase={includeNationalDatabase}
             showExpired={showExpired}
+            sort={sort}
             hideContentSearch={isPreviewOpen}
-            currentPage={currentPage}
+            currentPage={contentSearchActive ? searchCurrentPage : currentPage}
             pageSize={pageSize}
-            totalPages={contentSearchActive ? 1 : totalPages}
-            showPagination={!contentSearchActive}
-            onPageChange={setCurrentPage}
+            totalPages={contentSearchActive ? searchTotalPages : totalPages}
+            showPagination
+            onToggleSort={toggleSortForColumn}
+            onPageChange={contentSearchActive ? setSearchCurrentPage : setCurrentPage}
             onAgreementNameQueryChange={setAgreementNameQuery}
             onContentSearchQueryChange={setContentSearchQuery}
             onSelectedChaptersChange={setSelectedChapters}
             onSelectedLocalUnionsChange={setSelectedLocalUnions}
             onSelectedAgreementTypesChange={setSelectedAgreementTypes}
             onSelectedStatesChange={setSelectedStates}
-            onNationalDatabaseFilterChange={setNationalDatabaseFilter}
+            onIncludeNationalDatabaseChange={setIncludeNationalDatabase}
             onShowExpiredChange={setShowExpired}
-            onClearFilters={clearFilters}
+            onClearAll={clearAll}
             onRefreshAgreements={() =>
               loadAllAgreements().catch(() =>
                 setError("Failed to refresh agreements.")

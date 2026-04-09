@@ -50,6 +50,22 @@ export type AgreementRow = {
   effectiveTo: string | null;
 };
 
+export type AgreementSort =
+  | "uploaded_desc"
+  | "uploaded_asc"
+  | "name_asc"
+  | "name_desc"
+  | "chapter_asc"
+  | "chapter_desc"
+  | "local_union_asc"
+  | "local_union_desc"
+  | "agreement_type_asc"
+  | "agreement_type_desc"
+  | "states_asc"
+  | "states_desc"
+  | "effective_desc"
+  | "effective_asc";
+
 export type AgreementListResponse = {
   rows: AgreementRow[];
   totalRows: number;
@@ -57,10 +73,37 @@ export type AgreementListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+  sort: AgreementSort;
   filterOptions: {
     chapterOptions: { value: string; label: string }[];
     localUnionOptions: { value: string; label: string }[];
     agreementTypeOptions: { value: string; label: string }[];
     stateOptions: { value: string; label: string }[];
   };
+};
+
+export type AgreementSearchResponse = {
+  query: string;
+  count: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  sort: AgreementSort;
+  results: {
+    id: string;
+    agreementName: string;
+    collectionId: string;
+    filename: string;
+    uploadedAt: number;
+    chapter: string;
+    localUnion: string;
+    agreementType: string;
+    states: string;
+    sharedToCbas: boolean;
+    effectiveFrom?: string | null;
+    effectiveTo?: string | null;
+    snippet?: string;
+    extractionState?: string;
+    extractedAt?: number | null;
+  }[];
 };

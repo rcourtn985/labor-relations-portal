@@ -28,10 +28,27 @@ type FilterOption = {
   label: string;
 };
 
+type AgreementSort =
+  | "uploaded_desc"
+  | "uploaded_asc"
+  | "name_asc"
+  | "name_desc"
+  | "chapter_asc"
+  | "chapter_desc"
+  | "local_union_asc"
+  | "local_union_desc"
+  | "agreement_type_asc"
+  | "agreement_type_desc"
+  | "states_asc"
+  | "states_desc"
+  | "effective_desc"
+  | "effective_asc";
+
 const SHARED_CBAS_KB_ID = "cbas_shared";
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
+const DEFAULT_SORT: AgreementSort = "uploaded_desc";
 
 function normalizeValue(value: string | null | undefined): string {
   return (value ?? "").trim();
@@ -115,6 +132,143 @@ function parsePositiveInt(
   return parsed;
 }
 
+function parseBoolean(value: string | null, fallback: boolean): boolean {
+  if (value === null) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no") {
+    return false;
+  }
+  return fallback;
+}
+
+function parseSort(value: string | null): AgreementSort {
+  switch (value) {
+    case "uploaded_asc":
+    case "name_asc":
+    case "name_desc":
+    case "chapter_asc":
+    case "chapter_desc":
+    case "local_union_asc":
+    case "local_union_desc":
+    case "agreement_type_asc":
+    case "agreement_type_desc":
+    case "states_asc":
+    case "states_desc":
+    case "effective_desc":
+    case "effective_asc":
+      return value;
+    case "uploaded_desc":
+    default:
+      return DEFAULT_SORT;
+  }
+}
+
+function compareNullableDatesDesc(a: string | null, b: string | null): number {
+  const aTime = a ? new Date(a).getTime() : Number.NEGATIVE_INFINITY;
+  const bTime = b ? new Date(b).getTime() : Number.NEGATIVE_INFINITY;
+  return bTime - aTime;
+}
+
+function compareNullableDatesAsc(a: string | null, b: string | null): number {
+  const aTime = a ? new Date(a).getTime() : Number.POSITIVE_INFINITY;
+  const bTime = b ? new Date(b).getTime() : Number.POSITIVE_INFINITY;
+  return aTime - bTime;
+}
+
+function sortRows(rows: AgreementRowResponse[], sort: AgreementSort): AgreementRowResponse[] {
+  const copy = [...rows];
+
+  copy.sort((a, b) => {
+    switch (sort) {
+      case "uploaded_asc":
+        return a.uploadedAt - b.uploadedAt;
+
+      case "uploaded_desc":
+        return b.uploadedAt - a.uploadedAt;
+
+      case "name_asc": {
+        const byName = a.agreementName.localeCompare(b.agreementName);
+        if (byName !== 0) return byName;
+        return b.uploadedAt - a.uploadedAt;
+      }
+
+      case "name_desc": {
+        const byName = b.agreementName.localeCompare(a.agreementName);
+        if (byName !== 0) return byName;
+        return b.uploadedAt - a.uploadedAt;
+      }
+
+      case "chapter_asc": {
+        const byChapter = a.chapter.localeCompare(b.chapter);
+        if (byChapter !== 0) return byChapter;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "chapter_desc": {
+        const byChapter = b.chapter.localeCompare(a.chapter);
+        if (byChapter !== 0) return byChapter;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "local_union_asc": {
+        const byLocal = a.localUnion.localeCompare(b.localUnion);
+        if (byLocal !== 0) return byLocal;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "local_union_desc": {
+        const byLocal = b.localUnion.localeCompare(a.localUnion);
+        if (byLocal !== 0) return byLocal;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "agreement_type_asc": {
+        const byType = a.agreementType.localeCompare(b.agreementType);
+        if (byType !== 0) return byType;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "agreement_type_desc": {
+        const byType = b.agreementType.localeCompare(a.agreementType);
+        if (byType !== 0) return byType;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "states_asc": {
+        const byStates = a.states.localeCompare(b.states);
+        if (byStates !== 0) return byStates;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "states_desc": {
+        const byStates = b.states.localeCompare(a.states);
+        if (byStates !== 0) return byStates;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "effective_asc": {
+        const byEffective = compareNullableDatesAsc(a.effectiveFrom, b.effectiveFrom);
+        if (byEffective !== 0) return byEffective;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      case "effective_desc": {
+        const byEffective = compareNullableDatesDesc(a.effectiveFrom, b.effectiveFrom);
+        if (byEffective !== 0) return byEffective;
+        return a.agreementName.localeCompare(b.agreementName);
+      }
+
+      default:
+        return b.uploadedAt - a.uploadedAt;
+    }
+  });
+
+  return copy;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await requireAuth();
@@ -130,9 +284,12 @@ export async function GET(request: NextRequest) {
     const selectedLocalUnions = parseMultiParam(searchParams, "localUnions");
     const selectedAgreementTypes = parseMultiParam(searchParams, "agreementTypes");
     const selectedStates = parseMultiParam(searchParams, "states");
-    const nationalDatabaseFilter =
-      searchParams.get("nationalDatabaseFilter") === "shared" ? "shared" : "all";
-    const showExpired = searchParams.get("showExpired") === "true";
+    const includeNationalDatabase = parseBoolean(
+      searchParams.get("includeNationalDatabase"),
+      true
+    );
+    const showExpired = parseBoolean(searchParams.get("showExpired"), false);
+    const sort = parseSort(searchParams.get("sort"));
 
     const page = parsePositiveInt(searchParams.get("page"), DEFAULT_PAGE);
     const pageSize = parsePositiveInt(
@@ -242,16 +399,24 @@ export async function GET(request: NextRequest) {
         };
       })
       .filter((row) => {
+        if (!includeNationalDatabase && row.collectionId === SHARED_CBAS_KB_ID) {
+          return false;
+        }
+
         if (isUserSystemAdmin) return true;
         if (!canManageAgreements) return true;
-        if (row.sharedToCbas) return true;
+        if (row.collectionId === SHARED_CBAS_KB_ID) return true;
         return normalizedManagedChapterNames.has(normalizeKey(row.chapter));
       });
 
     const rowsForDedup = [...visibleRows].sort((a, b) => {
-      if (a.sharedToCbas !== b.sharedToCbas) {
-        return a.sharedToCbas ? 1 : -1;
+      const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
+      const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
+
+      if (aIsNational !== bIsNational) {
+        return aIsNational ? 1 : -1;
       }
+
       return b.uploadedAt - a.uploadedAt;
     });
 
@@ -264,9 +429,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const dedupedRows = Array.from(dedupedMap.values()).sort(
-      (a, b) => b.uploadedAt - a.uploadedAt
-    );
+    const dedupedRows = Array.from(dedupedMap.values());
 
     const chapterOptions = toOptionArray(
       dedupedRows
@@ -312,9 +475,6 @@ export async function GET(request: NextRequest) {
         row.states === "—" ? "" : row.states,
         selectedStates
       );
-      const matchesNationalFilter =
-        nationalDatabaseFilter === "all" ||
-        (nationalDatabaseFilter === "shared" && row.sharedToCbas);
 
       const matchesStatus = (() => {
         if (showExpired) return true;
@@ -336,17 +496,18 @@ export async function GET(request: NextRequest) {
         matchesLocalUnionFilter &&
         matchesAgreementTypeFilter &&
         matchesStateFilter &&
-        matchesNationalFilter &&
         matchesStatus
       );
     });
+
+    const sortedRows = sortRows(filteredRows, sort);
 
     const filteredRowsCount = filteredRows.length;
     const totalRows = dedupedRows.length;
     const totalPages = Math.max(1, Math.ceil(filteredRowsCount / pageSize));
     const safePage = Math.min(page, totalPages);
     const startIndex = (safePage - 1) * pageSize;
-    const pagedRows = filteredRows.slice(startIndex, startIndex + pageSize);
+    const pagedRows = sortedRows.slice(startIndex, startIndex + pageSize);
 
     return NextResponse.json({
       rows: pagedRows,
@@ -355,6 +516,7 @@ export async function GET(request: NextRequest) {
       page: safePage,
       pageSize,
       totalPages,
+      sort,
       filterOptions: {
         chapterOptions,
         localUnionOptions,

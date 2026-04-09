@@ -2,7 +2,7 @@
 
 import MultiSelectDropdown from "../home/MultiSelectDropdown";
 import { manageAgreementsStyles as styles } from "./styles";
-import { AgreementRow } from "./types";
+import { AgreementRow, AgreementSort } from "./types";
 
 type FilterOption = {
   value: string;
@@ -27,13 +27,15 @@ type AgreementDatabaseCardProps = {
   selectedLocalUnions: string[];
   selectedAgreementTypes: string[];
   selectedStates: string[];
-  nationalDatabaseFilter: "all" | "shared";
+  includeNationalDatabase: boolean;
   showExpired: boolean;
+  sort: AgreementSort;
   hideContentSearch?: boolean;
   currentPage: number;
   pageSize: number;
   totalPages: number;
   showPagination?: boolean;
+  onToggleSort: (column: string) => void;
   onPageChange: (page: number) => void;
   onAgreementNameQueryChange: (value: string) => void;
   onContentSearchQueryChange: (value: string) => void;
@@ -41,9 +43,9 @@ type AgreementDatabaseCardProps = {
   onSelectedLocalUnionsChange: (value: string[]) => void;
   onSelectedAgreementTypesChange: (value: string[]) => void;
   onSelectedStatesChange: (value: string[]) => void;
-  onNationalDatabaseFilterChange: (value: "all" | "shared") => void;
+  onIncludeNationalDatabaseChange: (value: boolean) => void;
   onShowExpiredChange: (value: boolean) => void;
-  onClearFilters: () => void;
+  onClearAll: () => void;
   onRefreshAgreements: () => void;
   onOpenUploadedFile: (row: AgreementRow) => void;
   onOpenEditModal: (row: AgreementRow) => void;
@@ -117,6 +119,31 @@ function statusLabel(status: AgreementStatus): string {
   return "Expired";
 }
 
+function sortIndicator(
+  sort: AgreementSort,
+  ascValue: AgreementSort,
+  descValue: AgreementSort
+) {
+  if (sort === ascValue) return "▲";
+  if (sort === descValue) return "▼";
+  return "△";
+}
+
+function sortableHeaderStyle(active: boolean) {
+  return {
+    background: "none",
+    border: "none",
+    padding: 0,
+    font: "inherit",
+    fontWeight: 700,
+    color: active ? "var(--text)" : "inherit",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  } as const;
+}
+
 export default function AgreementDatabaseCard({
   filesLoading,
   searchLoading,
@@ -135,13 +162,15 @@ export default function AgreementDatabaseCard({
   selectedLocalUnions,
   selectedAgreementTypes,
   selectedStates,
-  nationalDatabaseFilter,
+  includeNationalDatabase,
   showExpired,
+  sort,
   hideContentSearch,
   currentPage,
   pageSize,
   totalPages,
   showPagination = true,
+  onToggleSort,
   onPageChange,
   onAgreementNameQueryChange,
   onContentSearchQueryChange,
@@ -149,9 +178,9 @@ export default function AgreementDatabaseCard({
   onSelectedLocalUnionsChange,
   onSelectedAgreementTypesChange,
   onSelectedStatesChange,
-  onNationalDatabaseFilterChange,
+  onIncludeNationalDatabaseChange,
   onShowExpiredChange,
-  onClearFilters,
+  onClearAll,
   onRefreshAgreements,
   onOpenUploadedFile,
   onOpenEditModal,
@@ -222,10 +251,10 @@ export default function AgreementDatabaseCard({
 
             <button
               type="button"
-              onClick={onClearFilters}
+              onClick={onClearAll}
               style={styles.subtleBtn}
             >
-              Clear Filters
+              Clear All
             </button>
           </div>
         </div>
@@ -316,33 +345,6 @@ export default function AgreementDatabaseCard({
               disabled={filesLoading}
             />
           </div>
-
-          <div style={{ minWidth: 180 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: "var(--muted-strong)",
-                marginBottom: 6,
-              }}
-            >
-              National Database
-            </div>
-            <select
-              value={nationalDatabaseFilter}
-              onChange={(e) =>
-                onNationalDatabaseFilterChange(
-                  e.target.value as "all" | "shared"
-                )
-              }
-              style={{ ...styles.select, minWidth: 180, width: "100%" }}
-            >
-              <option value="all">All</option>
-              <option value="shared">Shared</option>
-            </select>
-          </div>
         </div>
 
         {!hideContentSearch && (
@@ -406,14 +408,47 @@ export default function AgreementDatabaseCard({
                   : searchLoading
                     ? "Searching agreement text…"
                     : contentSearchQuery.trim()
-                      ? "Showing agreements whose extracted text matches the current search."
+                      ? "Showing agreements whose extracted text matches the current filtered result set."
                       : ""}
               </div>
             )}
           </div>
         )}
 
-        <div style={{ marginTop: 14 }}>
+        <div
+          style={{
+            marginTop: 14,
+            display: "flex",
+            gap: 18,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={includeNationalDatabase}
+              onChange={(e) => onIncludeNationalDatabaseChange(e.target.checked)}
+            />
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--muted-strong)",
+              }}
+            >
+              Include National Database
+            </span>
+          </label>
+
           <label
             style={{
               display: "flex",
@@ -497,15 +532,105 @@ export default function AgreementDatabaseCard({
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Agreement Name</th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("agreementName")}
+                      style={sortableHeaderStyle(
+                        sort === "name_asc" || sort === "name_desc"
+                      )}
+                    >
+                      Agreement Name
+                      <span>{sortIndicator(sort, "name_asc", "name_desc")}</span>
+                    </button>
+                  </th>
                   <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Effective Period</th>
-                  <th style={styles.th}>Chapter</th>
-                  <th style={styles.th}>Local Union(s)</th>
-                  <th style={styles.th}>Agreement Type</th>
-                  <th style={styles.th}>States</th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("effectiveFrom")}
+                      style={sortableHeaderStyle(
+                        sort === "effective_asc" || sort === "effective_desc"
+                      )}
+                    >
+                      Effective Period
+                      <span>
+                        {sortIndicator(sort, "effective_asc", "effective_desc")}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("chapter")}
+                      style={sortableHeaderStyle(
+                        sort === "chapter_asc" || sort === "chapter_desc"
+                      )}
+                    >
+                      Chapter
+                      <span>{sortIndicator(sort, "chapter_asc", "chapter_desc")}</span>
+                    </button>
+                  </th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("localUnion")}
+                      style={sortableHeaderStyle(
+                        sort === "local_union_asc" || sort === "local_union_desc"
+                      )}
+                    >
+                      Local Union(s)
+                      <span>
+                        {sortIndicator(sort, "local_union_asc", "local_union_desc")}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("agreementType")}
+                      style={sortableHeaderStyle(
+                        sort === "agreement_type_asc" ||
+                          sort === "agreement_type_desc"
+                      )}
+                    >
+                      Agreement Type
+                      <span>
+                        {sortIndicator(
+                          sort,
+                          "agreement_type_asc",
+                          "agreement_type_desc"
+                        )}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("states")}
+                      style={sortableHeaderStyle(
+                        sort === "states_asc" || sort === "states_desc"
+                      )}
+                    >
+                      States
+                      <span>{sortIndicator(sort, "states_asc", "states_desc")}</span>
+                    </button>
+                  </th>
                   <th style={styles.th}>National Database</th>
-                  <th style={styles.th}>Uploaded</th>
+                  <th style={styles.th}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleSort("uploadedAt")}
+                      style={sortableHeaderStyle(
+                        sort === "uploaded_desc" || sort === "uploaded_asc"
+                      )}
+                    >
+                      Uploaded
+                      <span>
+                        {sortIndicator(sort, "uploaded_asc", "uploaded_desc")}
+                      </span>
+                    </button>
+                  </th>
                   {showActionsColumn ? <th style={styles.th}>Actions</th> : null}
                 </tr>
               </thead>
