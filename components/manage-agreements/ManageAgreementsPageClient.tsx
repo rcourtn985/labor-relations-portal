@@ -18,6 +18,8 @@ import {
   isVisibleToChapterAdmin,
 } from "./manageAgreementsPageUtils";
 
+const DEFAULT_PAGE_SIZE = 25;
+
 export default function ManageAgreementsPageClient() {
   const {
     permissionsLoading,
@@ -41,6 +43,12 @@ export default function ManageAgreementsPageClient() {
   const [stateOptions, setStateOptions] = useState<
     { value: string; label: string }[]
   >([]);
+
+  const [totalRows, setTotalRows] = useState(0);
+  const [filteredRowsCount, setFilteredRowsCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [totalPages, setTotalPages] = useState(1);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -132,6 +140,8 @@ export default function ManageAgreementsPageClient() {
 
       params.set("nationalDatabaseFilter", nationalDatabaseFilter);
       params.set("showExpired", String(showExpired));
+      params.set("page", String(currentPage));
+      params.set("pageSize", String(pageSize));
 
       const res = await fetch(`/api/agreements?${params.toString()}`, {
         cache: "no-store",
@@ -147,6 +157,10 @@ export default function ManageAgreementsPageClient() {
       setLocalUnionOptions(data.filterOptions?.localUnionOptions ?? []);
       setAgreementTypeOptions(data.filterOptions?.agreementTypeOptions ?? []);
       setStateOptions(data.filterOptions?.stateOptions ?? []);
+      setTotalRows(data.totalRows ?? 0);
+      setFilteredRowsCount(data.filteredRowsCount ?? 0);
+      setTotalPages(data.totalPages ?? 1);
+      setCurrentPage(data.page ?? 1);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load agreements.");
       setAllAgreementRows([]);
@@ -154,6 +168,9 @@ export default function ManageAgreementsPageClient() {
       setLocalUnionOptions([]);
       setAgreementTypeOptions([]);
       setStateOptions([]);
+      setTotalRows(0);
+      setFilteredRowsCount(0);
+      setTotalPages(1);
     } finally {
       setFilesLoading(false);
     }
@@ -203,6 +220,7 @@ export default function ManageAgreementsPageClient() {
     setSelectedStates([]);
     setNationalDatabaseFilter("all");
     setShowExpired(false);
+    setCurrentPage(1);
   }
 
   function openUploadModal() {
@@ -650,6 +668,20 @@ export default function ManageAgreementsPageClient() {
     void loadAllAgreements();
   }, [
     searchRows,
+    currentPage,
+    agreementNameQuery,
+    selectedChapters,
+    selectedLocalUnions,
+    selectedAgreementTypes,
+    selectedStates,
+    nationalDatabaseFilter,
+    showExpired,
+    pageSize,
+  ]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
     agreementNameQuery,
     selectedChapters,
     selectedLocalUnions,
@@ -742,6 +774,7 @@ export default function ManageAgreementsPageClient() {
   ]);
 
   const showPreviewPane = isPreviewOpen;
+  const contentSearchActive = searchRows !== null;
 
   return (
     <div style={styles.page}>
@@ -787,7 +820,11 @@ export default function ManageAgreementsPageClient() {
             searchLoading={searchLoading}
             searchError={searchError}
             agreementRows={scopedRows}
+            agreementRowsTotal={totalRows}
             filteredAgreementRows={baseRows}
+            filteredAgreementRowsCount={
+              contentSearchActive ? baseRows.length : filteredRowsCount
+            }
             agreementNameQuery={agreementNameQuery}
             contentSearchQuery={contentSearchQuery}
             chapterOptions={chapterOptions}
@@ -801,6 +838,11 @@ export default function ManageAgreementsPageClient() {
             nationalDatabaseFilter={nationalDatabaseFilter}
             showExpired={showExpired}
             hideContentSearch={isPreviewOpen}
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalPages={contentSearchActive ? 1 : totalPages}
+            showPagination={!contentSearchActive}
+            onPageChange={setCurrentPage}
             onAgreementNameQueryChange={setAgreementNameQuery}
             onContentSearchQueryChange={setContentSearchQuery}
             onSelectedChaptersChange={setSelectedChapters}

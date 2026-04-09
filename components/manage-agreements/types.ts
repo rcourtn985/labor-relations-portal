@@ -54,6 +54,9 @@ export type AgreementListResponse = {
   rows: AgreementRow[];
   totalRows: number;
   filteredRowsCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
   filterOptions: {
     chapterOptions: { value: string; label: string }[];
     localUnionOptions: { value: string; label: string }[];

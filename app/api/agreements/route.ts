@@ -29,6 +29,9 @@ type FilterOption = {
 };
 
 const SHARED_CBAS_KB_ID = "cbas_shared";
+const DEFAULT_PAGE = 1;
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
 
 function normalizeValue(value: string | null | undefined): string {
   return (value ?? "").trim();
@@ -94,6 +97,24 @@ function parseMultiParam(searchParams: URLSearchParams, key: string): string[] {
     .filter(Boolean);
 }
 
+function parsePositiveInt(
+  value: string | null,
+  fallback: number,
+  max?: number
+): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return fallback;
+  }
+
+  if (typeof max === "number") {
+    return Math.min(parsed, max);
+  }
+
+  return parsed;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await requireAuth();
@@ -112,6 +133,13 @@ export async function GET(request: NextRequest) {
     const nationalDatabaseFilter =
       searchParams.get("nationalDatabaseFilter") === "shared" ? "shared" : "all";
     const showExpired = searchParams.get("showExpired") === "true";
+
+    const page = parsePositiveInt(searchParams.get("page"), DEFAULT_PAGE);
+    const pageSize = parsePositiveInt(
+      searchParams.get("pageSize"),
+      DEFAULT_PAGE_SIZE,
+      MAX_PAGE_SIZE
+    );
 
     const userMemberships = session.user.memberships ?? [];
     const isUserSystemAdmin = isSystemAdmin(session);
@@ -313,10 +341,20 @@ export async function GET(request: NextRequest) {
       );
     });
 
+    const filteredRowsCount = filteredRows.length;
+    const totalRows = dedupedRows.length;
+    const totalPages = Math.max(1, Math.ceil(filteredRowsCount / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const startIndex = (safePage - 1) * pageSize;
+    const pagedRows = filteredRows.slice(startIndex, startIndex + pageSize);
+
     return NextResponse.json({
-      rows: filteredRows,
-      totalRows: dedupedRows.length,
-      filteredRowsCount: filteredRows.length,
+      rows: pagedRows,
+      totalRows,
+      filteredRowsCount,
+      page: safePage,
+      pageSize,
+      totalPages,
       filterOptions: {
         chapterOptions,
         localUnionOptions,
