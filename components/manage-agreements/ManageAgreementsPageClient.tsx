@@ -8,21 +8,14 @@ import ManageAgreementsHero from "./ManageAgreementsHero";
 import UploadAgreementModal from "./UploadAgreementModal";
 import { ChapterOption } from "./SearchableChapterSelect";
 import { manageAgreementsStyles as styles } from "./styles";
-import { AgreementRow, KBFilesResponse, KBIndexResponse } from "./types";
+import { AgreementListResponse, AgreementRow } from "./types";
 import { useManageAgreementsAccess } from "./hooks/useManageAgreementsAccess";
 import {
   AgreementPreviewResponse,
   ExtractedMetadata,
   SearchResultRow,
-  SHARED_CBAS_KB_ID,
-  buildAgreementDedupKey,
   isManagedChapter,
   isVisibleToChapterAdmin,
-  matchesMultiValue,
-  matchesSingle,
-  normalizeValue,
-  splitCommaSeparated,
-  toOptionArray,
 } from "./manageAgreementsPageUtils";
 
 export default function ManageAgreementsPageClient() {
@@ -33,11 +26,21 @@ export default function ManageAgreementsPageClient() {
     publicChaptersLoading,
   } = useManageAgreementsAccess();
 
-  const [kbIndex, setKbIndex] = useState<KBIndexResponse | null>(null);
-  const [loadingCollections, setLoadingCollections] = useState(false);
-
   const [filesLoading, setFilesLoading] = useState(false);
   const [allAgreementRows, setAllAgreementRows] = useState<AgreementRow[]>([]);
+
+  const [chapterOptions, setChapterOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [localUnionOptions, setLocalUnionOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [agreementTypeOptions, setAgreementTypeOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [stateOptions, setStateOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +54,9 @@ export default function ManageAgreementsPageClient() {
   const [selectedLocalUnions, setSelectedLocalUnions] = useState<string[]>([]);
   const [selectedAgreementTypes, setSelectedAgreementTypes] = useState<string[]>([]);
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
-  const [nationalDatabaseFilter, setNationalDatabaseFilter] = useState<"all" | "shared">("all");
+  const [nationalDatabaseFilter, setNationalDatabaseFilter] = useState<"all" | "shared">(
+    "all"
+  );
   const [showExpired, setShowExpired] = useState(false);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -98,92 +103,57 @@ export default function ManageAgreementsPageClient() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  async function loadCollections() {
-    const res = await fetch("/api/kb/list");
-    const data = (await res.json()) as KBIndexResponse;
-    setKbIndex(data);
-    return data;
-  }
-
-  async function loadAllAgreements(indexOverride?: KBIndexResponse) {
+  async function loadAllAgreements() {
     setFilesLoading(true);
     setError(null);
 
     try {
-      const index = indexOverride ?? (await loadCollections());
+      const params = new URLSearchParams();
 
-      const sharedSystemKbs = (index?.systemKbs ?? []).filter(
-        (kb) => kb.id === SHARED_CBAS_KB_ID
-      );
-
-      const collections = [...sharedSystemKbs, ...(index?.userKbs ?? [])].filter(
-        (collection, collectionIndex, array) =>
-          array.findIndex((item) => item.id === collection.id) === collectionIndex
-      );
-
-      const fileResults = await Promise.all(
-        collections.map(async (collection) => {
-          const res = await fetch(
-            `/api/kb/files?kbId=${encodeURIComponent(collection.id)}`
-          );
-          const data = await res.json();
-
-          if (!res.ok) {
-            throw new Error(data?.error ?? `Failed to load ${collection.name}`);
-          }
-
-          return data as KBFilesResponse;
-        })
-      );
-
-      const rows: AgreementRow[] = fileResults.flatMap((filesData) => {
-        const sortedFiles = [...filesData.files].sort(
-          (a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)
-        );
-
-        return sortedFiles.map((file) => ({
-          id: file.id,
-          agreementName: filesData.kbName || "(untitled agreement)",
-          chapter: file.chapter?.trim() || "—",
-          localUnion: file.localUnion?.trim() || "—",
-          agreementType: file.agreementType?.trim() || "—",
-          states: file.states?.trim() || "—",
-          filename: file.filename ?? "(unknown)",
-          uploadedAt: file.created_at ?? 0,
-          status: file.status ?? "",
-          collectionId: filesData.kbId,
-          collectionName: filesData.kbName,
-          fileId: file.file_id,
-          fileUrl: file.fileUrl ?? null,
-          sharedToCbas: Boolean(file.sharedToCbas),
-          effectiveFrom: file.effectiveFrom ?? null,
-          effectiveTo: file.effectiveTo ?? null,
-        }));
-      });
-
-      const rowsForDedup = [...rows].sort((a, b) => {
-        if (a.sharedToCbas !== b.sharedToCbas) {
-          return a.sharedToCbas ? 1 : -1;
-        }
-        return b.uploadedAt - a.uploadedAt;
-      });
-
-      const dedupedMap = new Map<string, AgreementRow>();
-      for (const row of rowsForDedup) {
-        const key = buildAgreementDedupKey(row);
-        if (!dedupedMap.has(key)) {
-          dedupedMap.set(key, row);
-        }
+      if (agreementNameQuery.trim()) {
+        params.set("agreementName", agreementNameQuery.trim());
       }
 
-      const dedupedRows = Array.from(dedupedMap.values()).sort(
-        (a, b) => b.uploadedAt - a.uploadedAt
-      );
+      for (const value of selectedChapters) {
+        params.append("chapters", value);
+      }
 
-      setAllAgreementRows(dedupedRows);
+      for (const value of selectedLocalUnions) {
+        params.append("localUnions", value);
+      }
+
+      for (const value of selectedAgreementTypes) {
+        params.append("agreementTypes", value);
+      }
+
+      for (const value of selectedStates) {
+        params.append("states", value);
+      }
+
+      params.set("nationalDatabaseFilter", nationalDatabaseFilter);
+      params.set("showExpired", String(showExpired));
+
+      const res = await fetch(`/api/agreements?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as AgreementListResponse & { error?: string };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to load agreements.");
+      }
+
+      setAllAgreementRows(data.rows ?? []);
+      setChapterOptions(data.filterOptions?.chapterOptions ?? []);
+      setLocalUnionOptions(data.filterOptions?.localUnionOptions ?? []);
+      setAgreementTypeOptions(data.filterOptions?.agreementTypeOptions ?? []);
+      setStateOptions(data.filterOptions?.stateOptions ?? []);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load agreements.");
       setAllAgreementRows([]);
+      setChapterOptions([]);
+      setLocalUnionOptions([]);
+      setAgreementTypeOptions([]);
+      setStateOptions([]);
     } finally {
       setFilesLoading(false);
     }
@@ -232,6 +202,7 @@ export default function ManageAgreementsPageClient() {
     setSelectedAgreementTypes([]);
     setSelectedStates([]);
     setNationalDatabaseFilter("all");
+    setShowExpired(false);
   }
 
   function openUploadModal() {
@@ -378,8 +349,7 @@ export default function ManageAgreementsPageClient() {
       }
 
       setUploadStatus("Refreshing agreements...");
-      const refreshed = await loadCollections();
-      await loadAllAgreements(refreshed);
+      await loadAllAgreements();
 
       setUploadStatus("Done.");
       setIsUploadModalOpen(false);
@@ -654,7 +624,9 @@ export default function ManageAgreementsPageClient() {
           collectionId: row.collectionId ?? "",
           collectionName: row.agreementName || "",
           fileId: "",
-          fileUrl: null,
+          fileUrl: row.id
+            ? `/api/agreements/${encodeURIComponent(row.id)}/file`
+            : null,
           sharedToCbas: Boolean(row.sharedToCbas),
           effectiveFrom: row.effectiveFrom ?? null,
           effectiveTo: row.effectiveTo ?? null,
@@ -671,18 +643,21 @@ export default function ManageAgreementsPageClient() {
   }
 
   useEffect(() => {
-    (async () => {
-      try {
-        setLoadingCollections(true);
-        const data = await loadCollections();
-        await loadAllAgreements(data);
-      } catch {
-        setError("Failed to load agreement collections.");
-      } finally {
-        setLoadingCollections(false);
-      }
-    })();
-  }, []);
+    if (searchRows !== null) {
+      return;
+    }
+
+    void loadAllAgreements();
+  }, [
+    searchRows,
+    agreementNameQuery,
+    selectedChapters,
+    selectedLocalUnions,
+    selectedAgreementTypes,
+    selectedStates,
+    nationalDatabaseFilter,
+    showExpired,
+  ]);
 
   useEffect(() => {
     const trimmed = contentSearchQuery.trim();
@@ -766,111 +741,6 @@ export default function ManageAgreementsPageClient() {
     permissions.managedChapterNames,
   ]);
 
-  const visibleRowsForOptions = useMemo(() => {
-    if (permissions.isSystemAdmin) return allAgreementRows;
-    return scopedRows;
-  }, [allAgreementRows, scopedRows, permissions.isSystemAdmin]);
-
-  const chapterOptions = useMemo(
-    () =>
-      toOptionArray(
-        visibleRowsForOptions
-          .map((row) => normalizeValue(row.chapter))
-          .filter((value) => value && value !== "—")
-      ),
-    [visibleRowsForOptions]
-  );
-
-  const localUnionOptions = useMemo(
-    () =>
-      toOptionArray(
-        visibleRowsForOptions.flatMap((row) =>
-          splitCommaSeparated(row.localUnion === "—" ? "" : row.localUnion)
-        )
-      ),
-    [visibleRowsForOptions]
-  );
-
-  const agreementTypeOptions = useMemo(
-    () =>
-      toOptionArray(
-        visibleRowsForOptions
-          .map((row) => normalizeValue(row.agreementType))
-          .filter((value) => value && value !== "—")
-      ),
-    [visibleRowsForOptions]
-  );
-
-  const stateOptions = useMemo(
-    () =>
-      toOptionArray(
-        visibleRowsForOptions.flatMap((row) =>
-          splitCommaSeparated(row.states === "—" ? "" : row.states)
-        )
-      ),
-    [visibleRowsForOptions]
-  );
-
-  const filteredAgreementRows = useMemo(() => {
-    const nameNeedle = agreementNameQuery.trim().toLowerCase();
-
-    return baseRows.filter((row) => {
-      const matchesName =
-        !nameNeedle || row.agreementName.toLowerCase().includes(nameNeedle);
-      const matchesChapterFilter = matchesSingle(row.chapter, selectedChapters);
-      const matchesLocalUnionFilter = matchesMultiValue(
-        row.localUnion === "—" ? "" : row.localUnion,
-        selectedLocalUnions
-      );
-      const matchesAgreementTypeFilter = matchesSingle(
-        row.agreementType,
-        selectedAgreementTypes
-      );
-      const matchesStateFilter = matchesMultiValue(
-        row.states === "—" ? "" : row.states,
-        selectedStates
-      );
-      const matchesNationalFilter =
-        nationalDatabaseFilter === "all" ||
-        (nationalDatabaseFilter === "shared" && row.sharedToCbas);
-
-      return (
-        matchesName &&
-        matchesChapterFilter &&
-        matchesLocalUnionFilter &&
-        matchesAgreementTypeFilter &&
-        matchesStateFilter &&
-        matchesNationalFilter
-      );
-    });
-  }, [
-    baseRows,
-    agreementNameQuery,
-    selectedChapters,
-    selectedLocalUnions,
-    selectedAgreementTypes,
-    selectedStates,
-    nationalDatabaseFilter,
-  ]);
-
-  const statusFilteredRows = useMemo(() => {
-    if (showExpired) return filteredAgreementRows;
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-
-    return filteredAgreementRows.filter((row) => {
-      if (!row.effectiveFrom && !row.effectiveTo) return false;
-
-      const fromStr = row.effectiveFrom?.slice(0, 10) ?? null;
-      const toStr = row.effectiveTo?.slice(0, 10) ?? null;
-
-      const afterStart = !fromStr || fromStr <= todayStr;
-      const beforeEnd = !toStr || toStr >= todayStr;
-
-      return afterStart && beforeEnd;
-    });
-  }, [filteredAgreementRows, showExpired]);
-
   const showPreviewPane = isPreviewOpen;
 
   return (
@@ -913,11 +783,11 @@ export default function ManageAgreementsPageClient() {
       >
         <div style={{ minWidth: 0 }}>
           <AgreementDatabaseCard
-            filesLoading={filesLoading || loadingCollections}
+            filesLoading={filesLoading}
             searchLoading={searchLoading}
             searchError={searchError}
             agreementRows={scopedRows}
-            filteredAgreementRows={statusFilteredRows}
+            filteredAgreementRows={baseRows}
             agreementNameQuery={agreementNameQuery}
             contentSearchQuery={contentSearchQuery}
             chapterOptions={chapterOptions}

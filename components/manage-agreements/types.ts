@@ -49,3 +49,15 @@ export type AgreementRow = {
   effectiveFrom: string | null;
   effectiveTo: string | null;
 };
+
+export type AgreementListResponse = {
+  rows: AgreementRow[];
+  totalRows: number;
+  filteredRowsCount: number;
+  filterOptions: {
+    chapterOptions: { value: string; label: string }[];
+    localUnionOptions: { value: string; label: string }[];
+    agreementTypeOptions: { value: string; label: string }[];
+    stateOptions: { value: string; label: string }[];
+  };
+};
