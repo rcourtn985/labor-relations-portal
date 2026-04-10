@@ -11,6 +11,8 @@ type RouteContext = {
   }>;
 };
 
+const SHARED_CBAS_KB_ID = "cbas_shared";
+
 function contentDispositionType(
   mimeType: string | null
 ): "inline" | "attachment" {
@@ -18,6 +20,71 @@ function contentDispositionType(
   if (mimeType === "application/pdf") return "inline";
   if (mimeType.startsWith("text/")) return "inline";
   return "attachment";
+}
+
+async function resolveDocumentForAgreementFile(id: string) {
+  const directDocument = await prisma.document.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      filename: true,
+      storageProvider: true,
+      storageKey: true,
+      mimeType: true,
+      createdAt: true,
+      kbId: true,
+    },
+  });
+
+  if (directDocument) {
+    return directDocument;
+  }
+
+  const agreement = await prisma.agreement.findUnique({
+    where: { id },
+    select: {
+      documents: {
+        where: {
+          deletedAt: null,
+          isCba: true,
+        },
+        select: {
+          id: true,
+          filename: true,
+          storageProvider: true,
+          storageKey: true,
+          mimeType: true,
+          createdAt: true,
+          kbId: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
+
+  if (!agreement || agreement.documents.length === 0) {
+    return null;
+  }
+
+  return [...agreement.documents].sort((a, b) => {
+    const aIsNational = a.kbId === SHARED_CBAS_KB_ID;
+    const bIsNational = b.kbId === SHARED_CBAS_KB_ID;
+
+    if (aIsNational !== bIsNational) {
+      return aIsNational ? 1 : -1;
+    }
+
+    const aHasStoredOriginal =
+      a.storageProvider === "local" && Boolean(a.storageKey);
+    const bHasStoredOriginal =
+      b.storageProvider === "local" && Boolean(b.storageKey);
+
+    if (aHasStoredOriginal !== bHasStoredOriginal) {
+      return aHasStoredOriginal ? -1 : 1;
+    }
+
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  })[0];
 }
 
 export async function GET(_req: Request, context: RouteContext) {
@@ -31,16 +98,7 @@ export async function GET(_req: Request, context: RouteContext) {
       });
     }
 
-    const agreement = await prisma.document.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        filename: true,
-        storageProvider: true,
-        storageKey: true,
-        mimeType: true,
-      },
-    });
+    const agreement = await resolveDocumentForAgreementFile(id);
 
     if (!agreement) {
       return new Response(JSON.stringify({ error: "Agreement not found." }), {

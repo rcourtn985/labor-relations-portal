@@ -166,15 +166,17 @@ function compareNullableDatesAsc(a: string | null, b: string | null): number {
   return aTime - bTime;
 }
 
-function sortRows<T extends {
-  uploadedAt: number;
-  agreementName: string;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
-  effectiveFrom: string | null;
-}>(rows: T[], sort: AgreementSort): T[] {
+function sortRows<
+  T extends {
+    uploadedAt: number;
+    agreementName: string;
+    chapter: string;
+    localUnion: string;
+    agreementType: string;
+    states: string;
+    effectiveFrom: string | null;
+  }
+>(rows: T[], sort: AgreementSort): T[] {
   const copy = [...rows];
 
   copy.sort((a, b) => {
@@ -265,6 +267,81 @@ function sortRows<T extends {
   return copy;
 }
 
+type MatchedDocument = {
+  id: string;
+  agreementId: string | null;
+  filename: string;
+  uploadedAt: number;
+  chapter: string;
+  localUnion: string;
+  agreementType: string;
+  states: string;
+  sharedToCbas: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  collectionId: string;
+  collectionName: string;
+  snippet: string;
+  extractionState: string;
+  extractedAt: number | null;
+  kbId: string;
+  kbName: string;
+  textLength: number;
+  agreementName: string;
+};
+
+type SearchResultRow = {
+  id: string;
+  agreementId: string | null;
+  agreementName: string;
+  collectionId: string;
+  filename: string;
+  uploadedAt: number;
+  chapter: string;
+  localUnion: string;
+  agreementType: string;
+  states: string;
+  sharedToCbas: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  snippet: string;
+  extractionState: string;
+  extractedAt: number | null;
+};
+
+function chooseRepresentativeDocument(docs: MatchedDocument[]): MatchedDocument {
+  return [...docs].sort((a, b) => {
+    const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
+    const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
+
+    if (aIsNational !== bIsNational) {
+      return aIsNational ? 1 : -1;
+    }
+
+    return b.uploadedAt - a.uploadedAt;
+  })[0];
+}
+
+function chooseSnippetDocument(docs: MatchedDocument[]): MatchedDocument {
+  return [...docs].sort((a, b) => {
+    const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
+    const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
+
+    if (aIsNational !== bIsNational) {
+      return aIsNational ? 1 : -1;
+    }
+
+    const aHasSnippet = a.snippet.trim().length > 0 ? 1 : 0;
+    const bHasSnippet = b.snippet.trim().length > 0 ? 1 : 0;
+
+    if (aHasSnippet !== bHasSnippet) {
+      return bHasSnippet - aHasSnippet;
+    }
+
+    return b.uploadedAt - a.uploadedAt;
+  })[0];
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await requireAuth();
@@ -337,6 +414,7 @@ export async function GET(request: NextRequest) {
       },
       select: {
         id: true,
+        agreementId: true,
         filename: true,
         createdAt: true,
         chapter: true,
@@ -353,6 +431,19 @@ export async function GET(request: NextRequest) {
             name: true,
           },
         },
+        agreement: {
+          select: {
+            id: true,
+            name: true,
+            sourceFilename: true,
+            chapter: true,
+            localUnion: true,
+            cbaType: true,
+            state: true,
+            effectiveFrom: true,
+            effectiveTo: true,
+          },
+        },
         textContent: {
           select: {
             extractedText: true,
@@ -367,21 +458,6 @@ export async function GET(request: NextRequest) {
       take: 500,
     });
 
-    const preferredAgreementNameByFilename = new Map<string, string>();
-
-    for (const doc of documents) {
-      const filenameKey = normalizeKey(doc.filename);
-      if (!filenameKey) continue;
-      if (doc.kbId === SHARED_CBAS_KB_ID) continue;
-
-      const kbName = normalizeValue(doc.kb?.name);
-      if (!kbName) continue;
-
-      if (!preferredAgreementNameByFilename.has(filenameKey)) {
-        preferredAgreementNameByFilename.set(filenameKey, kbName);
-      }
-    }
-
     const visibleDocuments = documents.filter((doc) => {
       if (!includeNationalDatabase && doc.kbId === SHARED_CBAS_KB_ID) {
         return false;
@@ -394,64 +470,110 @@ export async function GET(request: NextRequest) {
       return normalizedManagedChapterNames.has(normalizeKey(doc.chapter));
     });
 
-    const mappedResults = visibleDocuments.map((doc) => {
+    const mappedDocuments: MatchedDocument[] = visibleDocuments.map((doc) => {
       const filename = doc.filename ?? "";
-      const filenameKey = normalizeKey(filename);
+      const chapter =
+        normalizeValue(doc.agreement?.chapter) || normalizeValue(doc.chapter) || "—";
+      const localUnion =
+        normalizeValue(doc.agreement?.localUnion) || normalizeValue(doc.localUnion) || "—";
+      const agreementType =
+        normalizeValue(doc.agreement?.cbaType) || normalizeValue(doc.cbaType) || "—";
+      const states =
+        normalizeValue(doc.agreement?.state) || normalizeValue(doc.state) || "—";
 
-      const preferredAgreementName =
-        preferredAgreementNameByFilename.get(filenameKey) ?? null;
+      const effectiveFrom = (doc.agreement?.effectiveFrom ?? doc.effectiveFrom)
+        ? (doc.agreement?.effectiveFrom ?? doc.effectiveFrom)!.toISOString()
+        : null;
+      const effectiveTo = (doc.agreement?.effectiveTo ?? doc.effectiveTo)
+        ? (doc.agreement?.effectiveTo ?? doc.effectiveTo)!.toISOString()
+        : null;
 
       const agreementName =
-        preferredAgreementName ||
+        normalizeValue(doc.agreement?.name) ||
         normalizeValue(doc.kb?.name) ||
+        normalizeValue(filename) ||
         "(untitled agreement)";
 
       return {
         id: doc.id,
-        agreementName,
-        collectionId: doc.kb?.id ?? "",
+        agreementId: doc.agreementId,
         filename,
         uploadedAt: Math.floor(doc.createdAt.getTime() / 1000),
-        chapter: doc.chapter ?? "",
-        localUnion: doc.localUnion ?? "",
-        agreementType: doc.cbaType ?? "",
-        states: doc.state ?? "",
+        chapter,
+        localUnion,
+        agreementType,
+        states,
         sharedToCbas: Boolean(doc.sharedToCbas),
-        effectiveFrom: doc.effectiveFrom ? doc.effectiveFrom.toISOString() : null,
-        effectiveTo: doc.effectiveTo ? doc.effectiveTo.toISOString() : null,
+        effectiveFrom,
+        effectiveTo,
+        collectionId: doc.kb?.id ?? "",
+        collectionName: doc.kb?.name ?? "",
         snippet: createSnippet(doc.textContent?.extractedText ?? "", q),
         extractionState: doc.textContent?.extractionState ?? "missing",
         extractedAt: doc.textContent?.extractedAt
           ? Math.floor(doc.textContent.extractedAt.getTime() / 1000)
           : null,
+        kbId: doc.kb?.id ?? "",
+        kbName: doc.kb?.name ?? "",
+        textLength: doc.textContent?.extractedText?.length ?? 0,
+        agreementName,
       };
     });
 
-    const rowsForDedup = [...mappedResults].sort((a, b) => {
-      const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
-      const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
+    const grouped = new Map<string, MatchedDocument[]>();
 
-      if (aIsNational !== bIsNational) {
-        return aIsNational ? 1 : -1;
+    for (const doc of mappedDocuments) {
+      const fallbackKey = buildAgreementDedupKey({
+        filename: doc.filename,
+        chapter: doc.chapter,
+        localUnion: doc.localUnion,
+        agreementType: doc.agreementType,
+        states: doc.states,
+        effectiveFrom: doc.effectiveFrom,
+        effectiveTo: doc.effectiveTo,
+      });
+
+      const groupKey = doc.agreementId ? `agreement:${doc.agreementId}` : `orphan:${fallbackKey}`;
+
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, []);
       }
 
-      return b.uploadedAt - a.uploadedAt;
-    });
-
-    const dedupedMap = new Map<string, (typeof mappedResults)[number]>();
-
-    for (const row of rowsForDedup) {
-      const key = buildAgreementDedupKey(row);
-      if (!dedupedMap.has(key)) {
-        dedupedMap.set(key, row);
-      }
+      grouped.get(groupKey)!.push(doc);
     }
 
-    const dedupedResults = Array.from(dedupedMap.values());
+    const groupedResults: SearchResultRow[] = Array.from(grouped.entries()).map(
+      ([groupKey, docs]) => {
+        const representative = chooseRepresentativeDocument(docs);
+        const snippetDoc = chooseSnippetDocument(docs);
+
+        const canonicalAgreementId = representative.agreementId ?? null;
+        const responseId = canonicalAgreementId ?? groupKey;
+
+        return {
+          id: responseId,
+          agreementId: canonicalAgreementId,
+          agreementName: representative.agreementName,
+          collectionId: representative.collectionId,
+          filename: representative.filename,
+          uploadedAt: representative.uploadedAt,
+          chapter: representative.chapter,
+          localUnion: representative.localUnion,
+          agreementType: representative.agreementType,
+          states: representative.states,
+          sharedToCbas: representative.sharedToCbas,
+          effectiveFrom: representative.effectiveFrom,
+          effectiveTo: representative.effectiveTo,
+          snippet: snippetDoc.snippet,
+          extractionState: snippetDoc.extractionState,
+          extractedAt: snippetDoc.extractedAt,
+        };
+      }
+    );
 
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const filteredResults = dedupedResults.filter((row) => {
+    const filteredResults = groupedResults.filter((row) => {
       const matchesName =
         !agreementNameQuery ||
         row.agreementName.toLowerCase().includes(agreementNameQuery.toLowerCase());

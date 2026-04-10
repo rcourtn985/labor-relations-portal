@@ -76,26 +76,6 @@ function toOptionArray(values: Iterable<string>): FilterOption[] {
     }));
 }
 
-function buildAgreementDedupKey(row: {
-  filename: string;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-}): string {
-  return [
-    normalizeKey(row.filename),
-    normalizeKey(row.chapter),
-    normalizeKey(row.localUnion),
-    normalizeKey(row.agreementType),
-    normalizeKey(row.states),
-    normalizeKey(row.effectiveFrom),
-    normalizeKey(row.effectiveTo),
-  ].join("||");
-}
-
 function matchesSingle(value: string, selected: string[]): boolean {
   if (selected.length === 0) return true;
   return selected.includes(value);
@@ -269,6 +249,57 @@ function sortRows(rows: AgreementRowResponse[], sort: AgreementSort): AgreementR
   return copy;
 }
 
+type VisibleRepresentativeDocument = {
+  id: string;
+  filename: string;
+  createdAt: Date;
+  chapter: string | null;
+  localUnion: string | null;
+  cbaType: string | null;
+  state: string | null;
+  sharedToCbas: boolean;
+  effectiveFrom: Date | null;
+  effectiveTo: Date | null;
+  openaiFileId: string;
+  kbId: string;
+  kb: {
+    id: string;
+    name: string;
+  } | null;
+};
+
+type CanonicalAgreementListItem = {
+  id: string;
+  name: string;
+  sourceFilename: string | null;
+  chapter: string | null;
+  localUnion: string | null;
+  cbaType: string | null;
+  state: string | null;
+  effectiveFrom: Date | null;
+  effectiveTo: Date | null;
+  representative: VisibleRepresentativeDocument | null;
+};
+
+function chooseRepresentativeDocument(
+  docs: VisibleRepresentativeDocument[]
+): VisibleRepresentativeDocument | null {
+  if (docs.length === 0) return null;
+
+  const sorted = [...docs].sort((a, b) => {
+    const aIsNational = a.kbId === SHARED_CBAS_KB_ID;
+    const bIsNational = b.kbId === SHARED_CBAS_KB_ID;
+
+    if (aIsNational !== bIsNational) {
+      return aIsNational ? 1 : -1;
+    }
+
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
+
+  return sorted[0] ?? null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await requireAuth();
@@ -313,151 +344,156 @@ export async function GET(request: NextRequest) {
     const canManageAgreements =
       isUserSystemAdmin || normalizedManagedChapterNames.size > 0;
 
-    const documents = await prisma.document.findMany({
+    const agreements = await prisma.agreement.findMany({
       where: {
-        isCba: true,
         deletedAt: null,
       },
       select: {
         id: true,
-        filename: true,
-        createdAt: true,
+        name: true,
+        sourceFilename: true,
         chapter: true,
         localUnion: true,
         cbaType: true,
         state: true,
-        sharedToCbas: true,
         effectiveFrom: true,
         effectiveTo: true,
-        openaiFileId: true,
-        kbId: true,
-        kb: {
+        documents: {
+          where: {
+            deletedAt: null,
+            isCba: true,
+          },
           select: {
             id: true,
-            name: true,
+            filename: true,
+            createdAt: true,
+            chapter: true,
+            localUnion: true,
+            cbaType: true,
+            state: true,
+            sharedToCbas: true,
+            effectiveFrom: true,
+            effectiveTo: true,
+            openaiFileId: true,
+            kbId: true,
+            kb: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: "desc",
           },
         },
       },
       orderBy: {
-        createdAt: "desc",
+        updatedAt: "desc",
       },
     });
 
-    const preferredAgreementNameByFilename = new Map<string, string>();
+    const visibleAgreements: CanonicalAgreementListItem[] = agreements
+      .map((agreement) => {
+        const visibleDocs = agreement.documents.filter((doc) => {
+          if (!includeNationalDatabase && doc.kbId === SHARED_CBAS_KB_ID) {
+            return false;
+          }
 
-    for (const doc of documents) {
-      const filenameKey = normalizeKey(doc.filename);
-      if (!filenameKey) continue;
-      if (doc.kbId === SHARED_CBAS_KB_ID) continue;
+          if (isUserSystemAdmin) return true;
+          if (!canManageAgreements) return true;
+          if (doc.kbId === SHARED_CBAS_KB_ID) return true;
 
-      const kbName = normalizeValue(doc.kb?.name);
-      if (!kbName) continue;
+          return normalizedManagedChapterNames.has(normalizeKey(doc.chapter));
+        });
 
-      if (!preferredAgreementNameByFilename.has(filenameKey)) {
-        preferredAgreementNameByFilename.set(filenameKey, kbName);
-      }
-    }
-
-    const visibleRows: AgreementRowResponse[] = documents
-      .map((doc) => {
-        const chapter = normalizeValue(doc.chapter) || "—";
-        const localUnion = normalizeValue(doc.localUnion) || "—";
-        const agreementType = normalizeValue(doc.cbaType) || "—";
-        const states = normalizeValue(doc.state) || "—";
-        const filename = doc.filename ?? "(unknown)";
-        const filenameKey = normalizeKey(filename);
-
-        const preferredAgreementName =
-          preferredAgreementNameByFilename.get(filenameKey) ?? null;
-
-        const agreementName =
-          preferredAgreementName ||
-          normalizeValue(doc.kb?.name) ||
-          "(untitled agreement)";
-
-        const fileUrl = doc.id
-          ? `/api/agreements/${encodeURIComponent(doc.id)}/file`
-          : null;
+        const representative = chooseRepresentativeDocument(visibleDocs);
 
         return {
-          id: doc.id,
-          agreementName,
-          chapter,
-          localUnion,
-          agreementType,
-          states,
-          filename,
-          uploadedAt: Math.floor(doc.createdAt.getTime() / 1000),
-          status: "stored",
-          collectionId: doc.kb?.id ?? "",
-          collectionName: doc.kb?.name ?? "",
-          fileId: doc.openaiFileId ?? "",
-          fileUrl,
-          sharedToCbas: Boolean(doc.sharedToCbas),
-          effectiveFrom: doc.effectiveFrom ? doc.effectiveFrom.toISOString() : null,
-          effectiveTo: doc.effectiveTo ? doc.effectiveTo.toISOString() : null,
+          id: agreement.id,
+          name: agreement.name,
+          sourceFilename: agreement.sourceFilename,
+          chapter: agreement.chapter,
+          localUnion: agreement.localUnion,
+          cbaType: agreement.cbaType,
+          state: agreement.state,
+          effectiveFrom: agreement.effectiveFrom,
+          effectiveTo: agreement.effectiveTo,
+          representative,
         };
       })
-      .filter((row) => {
-        if (!includeNationalDatabase && row.collectionId === SHARED_CBAS_KB_ID) {
-          return false;
-        }
+      .filter((agreement) => agreement.representative !== null);
 
-        if (isUserSystemAdmin) return true;
-        if (!canManageAgreements) return true;
-        if (row.collectionId === SHARED_CBAS_KB_ID) return true;
-        return normalizedManagedChapterNames.has(normalizeKey(row.chapter));
-      });
+    const rows: AgreementRowResponse[] = visibleAgreements.map((agreement) => {
+      const representative = agreement.representative!;
+      const chapter = normalizeValue(agreement.chapter) || normalizeValue(representative.chapter) || "—";
+      const localUnion =
+        normalizeValue(agreement.localUnion) || normalizeValue(representative.localUnion) || "—";
+      const agreementType =
+        normalizeValue(agreement.cbaType) || normalizeValue(representative.cbaType) || "—";
+      const states =
+        normalizeValue(agreement.state) || normalizeValue(representative.state) || "—";
+      const filename =
+        normalizeValue(representative.filename) ||
+        normalizeValue(agreement.sourceFilename) ||
+        "(unknown)";
+      const agreementName =
+        normalizeValue(agreement.name) || "(untitled agreement)";
+      const fileUrl = representative.id
+        ? `/api/agreements/${encodeURIComponent(representative.id)}/file`
+        : null;
 
-    const rowsForDedup = [...visibleRows].sort((a, b) => {
-      const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
-      const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
-
-      if (aIsNational !== bIsNational) {
-        return aIsNational ? 1 : -1;
-      }
-
-      return b.uploadedAt - a.uploadedAt;
+      return {
+        id: agreement.id,
+        agreementName,
+        chapter,
+        localUnion,
+        agreementType,
+        states,
+        filename,
+        uploadedAt: Math.floor(representative.createdAt.getTime() / 1000),
+        status: "stored",
+        collectionId: representative.kb?.id ?? "",
+        collectionName: representative.kb?.name ?? "",
+        fileId: representative.openaiFileId ?? "",
+        fileUrl,
+        sharedToCbas: Boolean(representative.sharedToCbas),
+        effectiveFrom: (agreement.effectiveFrom ?? representative.effectiveFrom)
+          ? (agreement.effectiveFrom ?? representative.effectiveFrom)!.toISOString()
+          : null,
+        effectiveTo: (agreement.effectiveTo ?? representative.effectiveTo)
+          ? (agreement.effectiveTo ?? representative.effectiveTo)!.toISOString()
+          : null,
+      };
     });
 
-    const dedupedMap = new Map<string, AgreementRowResponse>();
-
-    for (const row of rowsForDedup) {
-      const key = buildAgreementDedupKey(row);
-      if (!dedupedMap.has(key)) {
-        dedupedMap.set(key, row);
-      }
-    }
-
-    const dedupedRows = Array.from(dedupedMap.values());
-
     const chapterOptions = toOptionArray(
-      dedupedRows
+      rows
         .map((row) => normalizeValue(row.chapter))
         .filter((value) => value && value !== "—")
     );
 
     const localUnionOptions = toOptionArray(
-      dedupedRows.flatMap((row) =>
+      rows.flatMap((row) =>
         splitCommaSeparated(row.localUnion === "—" ? "" : row.localUnion)
       )
     );
 
     const agreementTypeOptions = toOptionArray(
-      dedupedRows
+      rows
         .map((row) => normalizeValue(row.agreementType))
         .filter((value) => value && value !== "—")
     );
 
     const stateOptions = toOptionArray(
-      dedupedRows.flatMap((row) =>
+      rows.flatMap((row) =>
         splitCommaSeparated(row.states === "—" ? "" : row.states)
       )
     );
 
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const filteredRows = dedupedRows.filter((row) => {
+    const filteredRows = rows.filter((row) => {
       const matchesName =
         !agreementNameQuery ||
         row.agreementName.toLowerCase().includes(agreementNameQuery.toLowerCase());
@@ -503,7 +539,7 @@ export async function GET(request: NextRequest) {
     const sortedRows = sortRows(filteredRows, sort);
 
     const filteredRowsCount = filteredRows.length;
-    const totalRows = dedupedRows.length;
+    const totalRows = rows.length;
     const totalPages = Math.max(1, Math.ceil(filteredRowsCount / pageSize));
     const safePage = Math.min(page, totalPages);
     const startIndex = (safePage - 1) * pageSize;

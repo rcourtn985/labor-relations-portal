@@ -14,11 +14,139 @@ const DEFAULT_OWNER_USER_ID = "system";
 function parseDate(value: unknown): Date | null {
   if (!value || typeof value !== "string" || !value.trim()) return null;
   const d = new Date(value.trim());
-  return isNaN(d.getTime()) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function normalizeChapterKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+async function resolveDocumentForAgreementView(id: string) {
+  const directDocument = await prisma.document.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      agreementId: true,
+      filename: true,
+      createdAt: true,
+      chapter: true,
+      localUnion: true,
+      cbaType: true,
+      state: true,
+      sharedToCbas: true,
+      effectiveFrom: true,
+      effectiveTo: true,
+      storageProvider: true,
+      storageKey: true,
+      mimeType: true,
+      fileSizeBytes: true,
+      sha256: true,
+      kb: { select: { id: true, name: true } },
+      textContent: { select: { extractionState: true, extractedAt: true } },
+      agreement: {
+        select: {
+          id: true,
+          name: true,
+          sourceFilename: true,
+          chapter: true,
+          localUnion: true,
+          cbaType: true,
+          state: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+        },
+      },
+    },
+  });
+
+  if (directDocument) {
+    return directDocument;
+  }
+
+  const agreement = await prisma.agreement.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      sourceFilename: true,
+      chapter: true,
+      localUnion: true,
+      cbaType: true,
+      state: true,
+      effectiveFrom: true,
+      effectiveTo: true,
+      documents: {
+        where: {
+          deletedAt: null,
+          isCba: true,
+        },
+        select: {
+          id: true,
+          agreementId: true,
+          filename: true,
+          createdAt: true,
+          chapter: true,
+          localUnion: true,
+          cbaType: true,
+          state: true,
+          sharedToCbas: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+          storageProvider: true,
+          storageKey: true,
+          mimeType: true,
+          fileSizeBytes: true,
+          sha256: true,
+          kb: { select: { id: true, name: true } },
+          textContent: { select: { extractionState: true, extractedAt: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
+
+  if (!agreement) {
+    return null;
+  }
+
+  const representative = [...agreement.documents].sort((a, b) => {
+    const aIsNational = a.kb?.id === SHARED_CBAS_KB_ID;
+    const bIsNational = b.kb?.id === SHARED_CBAS_KB_ID;
+
+    if (aIsNational !== bIsNational) {
+      return aIsNational ? 1 : -1;
+    }
+
+    const aHasStoredOriginal =
+      a.storageProvider === "local" && Boolean(a.storageKey);
+    const bHasStoredOriginal =
+      b.storageProvider === "local" && Boolean(b.storageKey);
+
+    if (aHasStoredOriginal !== bHasStoredOriginal) {
+      return aHasStoredOriginal ? -1 : 1;
+    }
+
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  })[0];
+
+  if (!representative) {
+    return null;
+  }
+
+  return {
+    ...representative,
+    agreement: {
+      id: agreement.id,
+      name: agreement.name,
+      sourceFilename: agreement.sourceFilename,
+      chapter: agreement.chapter,
+      localUnion: agreement.localUnion,
+      cbaType: agreement.cbaType,
+      state: agreement.state,
+      effectiveFrom: agreement.effectiveFrom,
+      effectiveTo: agreement.effectiveTo,
+    },
+  };
 }
 
 export async function GET(_req: Request, context: RouteContext) {
@@ -29,28 +157,7 @@ export async function GET(_req: Request, context: RouteContext) {
       return NextResponse.json({ error: "Missing agreement id." }, { status: 400 });
     }
 
-    const agreement = await prisma.document.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        filename: true,
-        createdAt: true,
-        chapter: true,
-        localUnion: true,
-        cbaType: true,
-        state: true,
-        sharedToCbas: true,
-        effectiveFrom: true,
-        effectiveTo: true,
-        storageProvider: true,
-        storageKey: true,
-        mimeType: true,
-        fileSizeBytes: true,
-        sha256: true,
-        kb: { select: { id: true, name: true } },
-        textContent: { select: { extractionState: true, extractedAt: true } },
-      },
-    });
+    const agreement = await resolveDocumentForAgreementView(id);
 
     if (!agreement) {
       return NextResponse.json({ error: "Agreement not found." }, { status: 404 });
@@ -59,19 +166,34 @@ export async function GET(_req: Request, context: RouteContext) {
     const hasStoredOriginal =
       agreement.storageProvider === "local" && Boolean(agreement.storageKey);
 
+    const canonicalId = agreement.agreement?.id ?? agreement.id;
+
     return NextResponse.json({
-      id: agreement.id,
-      agreementName: agreement.kb?.name ?? "(untitled agreement)",
+      id: canonicalId,
+      documentId: agreement.id,
+      agreementId: agreement.agreement?.id ?? agreement.agreementId ?? null,
+      agreementName:
+        agreement.agreement?.name ??
+        agreement.kb?.name ??
+        "(untitled agreement)",
       collectionId: agreement.kb?.id ?? "",
       filename: agreement.filename ?? "",
       uploadedAt: Math.floor(agreement.createdAt.getTime() / 1000),
-      chapter: agreement.chapter ?? "",
-      localUnion: agreement.localUnion ?? "",
-      agreementType: agreement.cbaType ?? "",
-      states: agreement.state ?? "",
+      chapter: agreement.agreement?.chapter ?? agreement.chapter ?? "",
+      localUnion: agreement.agreement?.localUnion ?? agreement.localUnion ?? "",
+      agreementType: agreement.agreement?.cbaType ?? agreement.cbaType ?? "",
+      states: agreement.agreement?.state ?? agreement.state ?? "",
       sharedToCbas: Boolean(agreement.sharedToCbas),
-      effectiveFrom: agreement.effectiveFrom ? agreement.effectiveFrom.toISOString() : null,
-      effectiveTo: agreement.effectiveTo ? agreement.effectiveTo.toISOString() : null,
+      effectiveFrom: agreement.agreement?.effectiveFrom
+        ? agreement.agreement.effectiveFrom.toISOString()
+        : agreement.effectiveFrom
+          ? agreement.effectiveFrom.toISOString()
+          : null,
+      effectiveTo: agreement.agreement?.effectiveTo
+        ? agreement.agreement.effectiveTo.toISOString()
+        : agreement.effectiveTo
+          ? agreement.effectiveTo.toISOString()
+          : null,
       storageProvider: agreement.storageProvider ?? null,
       storageKey: agreement.storageKey ?? null,
       mimeType: agreement.mimeType ?? null,
@@ -83,7 +205,7 @@ export async function GET(_req: Request, context: RouteContext) {
         : null,
       hasStoredOriginal,
       fileUrl: hasStoredOriginal
-        ? `/api/agreements/${encodeURIComponent(agreement.id)}/file`
+        ? `/api/agreements/${encodeURIComponent(canonicalId)}/file`
         : null,
       canPreviewInline:
         hasStoredOriginal &&
@@ -367,7 +489,6 @@ export async function DELETE(_req: Request, context: RouteContext) {
       }
     }
 
-    // Delete shared copy in national KB if it exists
     if (doc.isCba && doc.filename) {
       const sharedCopy = await prisma.document.findFirst({
         where: { kbId: SHARED_CBAS_KB_ID, filename: doc.filename },
@@ -378,16 +499,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
       }
     }
 
-    // Delete the document record (DocumentText cascades automatically)
     await prisma.document.delete({ where: { id } });
 
-    // Delete the KB if it is now empty
     const remainingDocs = await prisma.document.count({ where: { kbId: doc.kbId } });
     if (remainingDocs === 0) {
       await prisma.knowledgeBase.delete({ where: { id: doc.kbId } }).catch(() => {});
     }
 
-    // Delete the local storage file
     if (doc.storageProvider === "local" && doc.storageKey) {
       const nodePath = await import("path");
       const { promises: nodeFs } = await import("fs");
