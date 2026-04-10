@@ -196,6 +196,30 @@ model KnowledgeBase {
   @@index([chapterId])
 }
 
+model Agreement {
+  id             String   @id @default(cuid())
+  name           String
+  canonicalKey   String   @unique
+  sourceFilename String?
+  chapter        String?
+  localUnion     String?
+  cbaType        String?
+  state          String?
+  effectiveFrom  DateTime?
+  effectiveTo    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+  deletedAt      DateTime?
+
+  documents Document[]
+
+  @@index([chapter])
+  @@index([localUnion])
+  @@index([cbaType])
+  @@index([state])
+  @@index([deletedAt])
+}
+
 model Document {
   id String @id @default(cuid())
 
@@ -204,6 +228,9 @@ model Document {
 
   kbId String
   kb   KnowledgeBase @relation(fields: [kbId], references: [id])
+
+  agreementId String?
+  agreement   Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
 
   chapterId    String?
   chapterOwner Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
@@ -255,6 +282,7 @@ model Document {
   @@unique([kbId, filename])
   @@index([kbId])
   @@index([ownerUserId])
+  @@index([agreementId])
   @@index([isCba])
   @@index([chapterId])
   @@index([sharedToCbas])
