@@ -35,6 +35,8 @@ export default function ManageAgreementsPageClient() {
   } = useManageAgreementsAccess();
 
   const [filesLoading, setFilesLoading] = useState(false);
+  const [isRefreshingAgreements, setIsRefreshingAgreements] = useState(false);
+  const [hasLoadedAgreementsOnce, setHasLoadedAgreementsOnce] = useState(false);
   const [allAgreementRows, setAllAgreementRows] = useState<AgreementRow[]>([]);
 
   const [chapterOptions, setChapterOptions] = useState<
@@ -147,7 +149,14 @@ export default function ManageAgreementsPageClient() {
   }
 
   async function loadAllAgreements() {
-    setFilesLoading(true);
+    const isInitialLoad = !hasLoadedAgreementsOnce && allAgreementRows.length === 0;
+
+    if (isInitialLoad) {
+      setFilesLoading(true);
+    } else {
+      setIsRefreshingAgreements(true);
+    }
+
     setError(null);
 
     try {
@@ -198,18 +207,22 @@ export default function ManageAgreementsPageClient() {
       setTotalPages(data.totalPages ?? 1);
       setCurrentPage(data.page ?? 1);
       setSort(data.sort ?? DEFAULT_SORT);
+      setHasLoadedAgreementsOnce(true);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load agreements.");
-      setAllAgreementRows([]);
-      setChapterOptions([]);
-      setLocalUnionOptions([]);
-      setAgreementTypeOptions([]);
-      setStateOptions([]);
-      setTotalRows(0);
-      setFilteredRowsCount(0);
-      setTotalPages(1);
+      if (isInitialLoad) {
+        setAllAgreementRows([]);
+        setChapterOptions([]);
+        setLocalUnionOptions([]);
+        setAgreementTypeOptions([]);
+        setStateOptions([]);
+        setTotalRows(0);
+        setFilteredRowsCount(0);
+        setTotalPages(1);
+      }
     } finally {
       setFilesLoading(false);
+      setIsRefreshingAgreements(false);
     }
   }
 
@@ -966,6 +979,7 @@ export default function ManageAgreementsPageClient() {
             isDeletingAgreementId={isDeletingAgreementId}
             canManageAgreements={!permissionsLoading && permissions.canManageAgreements}
             canManageAgreement={canManageAgreementRow}
+            isRefreshingAgreements={isRefreshingAgreements}
           />
         </div>
 

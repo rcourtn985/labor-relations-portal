@@ -35,6 +35,7 @@ type AgreementDatabaseCardProps = {
   pageSize: number;
   totalPages: number;
   showPagination?: boolean;
+  isRefreshingAgreements?: boolean;
   onToggleSort: (column: string) => void;
   onPageChange: (page: number) => void;
   onAgreementNameQueryChange: (value: string) => void;
@@ -170,6 +171,7 @@ export default function AgreementDatabaseCard({
   pageSize,
   totalPages,
   showPagination = true,
+  isRefreshingAgreements = false,
   onToggleSort,
   onPageChange,
   onAgreementNameQueryChange,
@@ -198,6 +200,30 @@ export default function AgreementDatabaseCard({
     filteredAgreementRowsCount === 0
       ? 0
       : Math.min(currentPage * pageSize, filteredAgreementRowsCount);
+
+  function handleSortMouseDown(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+  }
+
+  function renderSortButton(
+    label: string,
+    column: string,
+    isActive: boolean,
+    ascValue: AgreementSort,
+    descValue: AgreementSort
+  ) {
+    return (
+      <button
+        type="button"
+        onMouseDown={handleSortMouseDown}
+        onClick={() => onToggleSort(column)}
+        style={sortableHeaderStyle(isActive)}
+      >
+        {label}
+        <span>{sortIndicator(sort, ascValue, descValue)}</span>
+      </button>
+    );
+  }
 
   return (
     <div
@@ -240,6 +266,9 @@ export default function AgreementDatabaseCard({
             <span style={styles.toolbarChip}>
               Filtered: {filteredAgreementRowsCount}
             </span>
+            {isRefreshingAgreements && (
+              <span style={styles.toolbarChip}>Refreshing…</span>
+            )}
 
             <button
               type="button"
@@ -485,11 +514,13 @@ export default function AgreementDatabaseCard({
           overflowY: "visible",
         }}
       >
-        {filesLoading && (
-          <div style={{ padding: 16, color: "var(--muted)" }}>
-            Loading agreements…
-          </div>
-        )}
+        {filesLoading &&
+          agreementRowsTotal === 0 &&
+          filteredAgreementRows.length === 0 && (
+            <div style={{ padding: 16, color: "var(--muted)" }}>
+              Loading agreements…
+            </div>
+          )}
 
         {!filesLoading && agreementRowsTotal === 0 && (
           <div style={{ padding: 16, color: "var(--muted)" }}>
@@ -533,103 +564,70 @@ export default function AgreementDatabaseCard({
               <thead>
                 <tr>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("agreementName")}
-                      style={sortableHeaderStyle(
-                        sort === "name_asc" || sort === "name_desc"
-                      )}
-                    >
-                      Agreement Name
-                      <span>{sortIndicator(sort, "name_asc", "name_desc")}</span>
-                    </button>
+                    {renderSortButton(
+                      "Agreement Name",
+                      "agreementName",
+                      sort === "name_asc" || sort === "name_desc",
+                      "name_asc",
+                      "name_desc"
+                    )}
                   </th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("effectiveFrom")}
-                      style={sortableHeaderStyle(
-                        sort === "effective_asc" || sort === "effective_desc"
-                      )}
-                    >
-                      Effective Period
-                      <span>
-                        {sortIndicator(sort, "effective_asc", "effective_desc")}
-                      </span>
-                    </button>
+                    {renderSortButton(
+                      "Effective Period",
+                      "effectiveFrom",
+                      sort === "effective_asc" || sort === "effective_desc",
+                      "effective_asc",
+                      "effective_desc"
+                    )}
                   </th>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("chapter")}
-                      style={sortableHeaderStyle(
-                        sort === "chapter_asc" || sort === "chapter_desc"
-                      )}
-                    >
-                      Chapter
-                      <span>{sortIndicator(sort, "chapter_asc", "chapter_desc")}</span>
-                    </button>
+                    {renderSortButton(
+                      "Chapter",
+                      "chapter",
+                      sort === "chapter_asc" || sort === "chapter_desc",
+                      "chapter_asc",
+                      "chapter_desc"
+                    )}
                   </th>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("localUnion")}
-                      style={sortableHeaderStyle(
-                        sort === "local_union_asc" || sort === "local_union_desc"
-                      )}
-                    >
-                      Local Union(s)
-                      <span>
-                        {sortIndicator(sort, "local_union_asc", "local_union_desc")}
-                      </span>
-                    </button>
+                    {renderSortButton(
+                      "Local Union(s)",
+                      "localUnion",
+                      sort === "local_union_asc" || sort === "local_union_desc",
+                      "local_union_asc",
+                      "local_union_desc"
+                    )}
                   </th>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("agreementType")}
-                      style={sortableHeaderStyle(
-                        sort === "agreement_type_asc" ||
-                          sort === "agreement_type_desc"
-                      )}
-                    >
-                      Agreement Type
-                      <span>
-                        {sortIndicator(
-                          sort,
-                          "agreement_type_asc",
-                          "agreement_type_desc"
-                        )}
-                      </span>
-                    </button>
+                    {renderSortButton(
+                      "Agreement Type",
+                      "agreementType",
+                      sort === "agreement_type_asc" ||
+                        sort === "agreement_type_desc",
+                      "agreement_type_asc",
+                      "agreement_type_desc"
+                    )}
                   </th>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("states")}
-                      style={sortableHeaderStyle(
-                        sort === "states_asc" || sort === "states_desc"
-                      )}
-                    >
-                      States
-                      <span>{sortIndicator(sort, "states_asc", "states_desc")}</span>
-                    </button>
+                    {renderSortButton(
+                      "States",
+                      "states",
+                      sort === "states_asc" || sort === "states_desc",
+                      "states_asc",
+                      "states_desc"
+                    )}
                   </th>
                   <th style={styles.th}>National Database</th>
                   <th style={styles.th}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleSort("uploadedAt")}
-                      style={sortableHeaderStyle(
-                        sort === "uploaded_desc" || sort === "uploaded_asc"
-                      )}
-                    >
-                      Uploaded
-                      <span>
-                        {sortIndicator(sort, "uploaded_asc", "uploaded_desc")}
-                      </span>
-                    </button>
+                    {renderSortButton(
+                      "Uploaded",
+                      "uploadedAt",
+                      sort === "uploaded_desc" || sort === "uploaded_asc",
+                      "uploaded_asc",
+                      "uploaded_desc"
+                    )}
                   </th>
                   {showActionsColumn ? <th style={styles.th}>Actions</th> : null}
                 </tr>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import AccessRequestsClient from "./access-requests/AccessRequestsClient";
 import ActiveUsersClient from "./active-users/ActiveUsersClient";
+import CanonicalAgreementHealthCard from "./CanonicalAgreementHealthCard";
 
 export default function AdminPageClient() {
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -33,9 +34,12 @@ export default function AdminPageClient() {
         <h1 style={{ margin: 0, marginBottom: 8 }}>Site Administration</h1>
         <p style={{ margin: 0, color: "var(--muted)" }}>
           Review access requests, manage active users, adjust chapter
-          assignments, and control account access.
+          assignments, control account access, and monitor canonical agreement
+          data health.
         </p>
       </div>
+
+      <CanonicalAgreementHealthCard refreshVersion={refreshVersion} />
 
       <AccessRequestsClient
         refreshVersion={refreshVersion}
