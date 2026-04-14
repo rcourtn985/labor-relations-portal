@@ -30,8 +30,8 @@ The current product direction is:
 - authenticated access and chapter-based permissions are now part of the core product
 - chat/RAG remains important, but is secondary to the agreement database workflow
 - system administration and chapter administration are being expanded to support real user onboarding and chapter-scoped access before broader alpha use
-- agreement-list and agreement-search scalability are now an active workstream on the `search-scale` branch
-- the next major structural focus is the **canonical agreement model**, so logical agreements are no longer inferred from multiple raw document rows
+- agreement-list and agreement-search scalability have been the active workstream on the `search-scale` branch
+- the **canonical agreement model** is now in active implementation on the `search-scale` branch so logical agreements are no longer inferred only from multiple raw document rows
 
 ## Working features
 
@@ -42,7 +42,7 @@ The main working surface for uploaded agreements.
 Current capabilities include:
 - agreement list with filtering by chapter, local union, agreement type, state, national database inclusion, and expired agreement visibility
 - agreement list now loaded through a PostgreSQL-backed server route instead of broad KB/file fan-out loading
-- server-side agreement deduplication for logical agreement display
+- canonical agreement-backed list responses so the agreement database can display one logical agreement row instead of deduping only raw document rows at render time
 - server-side pagination for the main agreement list
 - clickable column-header sorting on the agreement list
 - agreement name click-through to open in-app preview
@@ -50,10 +50,13 @@ Current capabilities include:
 - extracted-text content search
 - content search now honors the currently filtered agreement universe
 - content search now uses the same scope and dedupe model as the main agreement list
+- agreement content search now groups results by canonical agreement when available instead of returning one result per stored copy
 - content-search pagination
 - side-panel agreement preview
 - in-document PDF viewing with search and highlight
 - text and PDF inline preview support
+- agreement detail/viewer/download routes now resolve canonical agreement ids as well as raw document ids
+- agreement edit and delete flows now support canonical agreement ids in addition to legacy raw document ids
 - shared/national agreement visibility for chapter admins
 - chapter-admin read-only access to out-of-scope nationally shared agreements with direct download from the document viewer
 - direct download button in the agreement database list for read-only users when the agreement is visible to them
@@ -71,6 +74,9 @@ Uploads currently:
   - system admins can choose from the full chapter list
   - chapter admins are limited to assigned chapters
 - optionally create a nationally shared copy in the `cbas_shared` system knowledge base when the agreement is shared nationally
+- create or attach new agreement uploads to canonical `Agreement` records
+- allow chapter and nationally shared copies to point to the same canonical `agreementId`
+- support backfilling legacy agreement rows into canonical agreement records
 
 ### Authentication and access control
 
@@ -162,10 +168,25 @@ The schema now supports:
 - password reset tokens
 - knowledge bases
 - documents
+- canonical agreements
 - extracted text storage
 - usage and retrieval event tracking
 
 This supports the long-term goal of hosted, multi-user usage before broader alpha release.
+
+### Canonical agreement model
+
+The project is moving away from treating each stored `Document` row as the only agreement-level object.
+
+Current direction:
+- add a first-class `Agreement` model
+- link multiple stored `Document` rows to one canonical agreement through `agreementId`
+- use canonical agreements as the primary list/search/detail object where practical
+- preserve document-level storage, file preview, and download behavior underneath the canonical agreement layer
+
+Current tradeoff:
+- nationally shared agreements may still exist as multiple stored `Document` rows tied to one logical `Agreement`
+- this works for the current transition, but may be revisited later in favor of a cleaner publication/visibility model
 
 ### Original file storage
 
