@@ -4,6 +4,30 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
+type AgreementRowResponse = {
+  id: string;
+  agreementName: string;
+  chapter: string;
+  localUnion: string;
+  agreementType: string;
+  states: string;
+  filename: string;
+  uploadedAt: number;
+  status: string;
+  collectionId: string;
+  collectionName: string;
+  fileId: string;
+  fileUrl: string | null;
+  sharedToCbas: boolean;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+};
+
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
 type AgreementSort =
   | "uploaded_desc"
   | "uploaded_asc"
@@ -26,10 +50,6 @@ const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_SORT: AgreementSort = "uploaded_desc";
 
-function normalizeQuery(value: string | null): string {
-  return (value ?? "").trim();
-}
-
 function normalizeValue(value: string | null | undefined): string {
   return (value ?? "").trim();
 }
@@ -45,43 +65,33 @@ function splitCommaSeparated(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-function createSnippet(text: string, query: string, radius = 140): string {
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const index = lowerText.indexOf(lowerQuery);
-
-  if (index === -1) {
-    const fallback = text.trim().slice(0, radius * 2);
-    return fallback.length < text.trim().length ? `${fallback}…` : fallback;
-  }
-
-  const start = Math.max(0, index - radius);
-  const end = Math.min(text.length, index + query.length + radius);
-
-  const prefix = start > 0 ? "…" : "";
-  const suffix = end < text.length ? "…" : "";
-
-  return `${prefix}${text.slice(start, end).trim()}${suffix}`;
+function toOptionArray(values: Iterable<string>): FilterOption[] {
+  return [...new Set(values)]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({
+      value,
+      label: value,
+    }));
 }
 
-function buildAgreementDedupKey(row: {
-  filename: string;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-}): string {
-  return [
-    normalizeKey(row.filename),
-    normalizeKey(row.chapter),
-    normalizeKey(row.localUnion),
-    normalizeKey(row.agreementType),
-    normalizeKey(row.states),
-    normalizeKey(row.effectiveFrom),
-    normalizeKey(row.effectiveTo),
-  ].join("||");
+function matchesSingle(value: string, selected: string[]): boolean {
+  if (selected.length === 0) return true;
+  return selected.includes(value);
+}
+
+function matchesMultiValue(value: string, selected: string[]): boolean {
+  if (selected.length === 0) return true;
+  const parts = splitCommaSeparated(value);
+  return parts.some((part) => selected.includes(part));
+}
+
+function parseMultiParam(searchParams: URLSearchParams, key: string): string[] {
+  return searchParams
+    .getAll(key)
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function parsePositiveInt(
@@ -112,24 +122,6 @@ function parseBoolean(value: string | null, fallback: boolean): boolean {
     return false;
   }
   return fallback;
-}
-
-function parseMultiParam(searchParams: URLSearchParams, key: string): string[] {
-  return searchParams
-    .getAll(key)
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
-function matchesSingle(value: string, selected: string[]): boolean {
-  if (selected.length === 0) return true;
-  return selected.includes(value);
-}
-
-function matchesMultiValue(value: string, selected: string[]): boolean {
-  if (selected.length === 0) return true;
-  const parts = splitCommaSeparated(value);
-  return parts.some((part) => selected.includes(part));
 }
 
 function parseSort(value: string | null): AgreementSort {
@@ -166,17 +158,7 @@ function compareNullableDatesAsc(a: string | null, b: string | null): number {
   return aTime - bTime;
 }
 
-function sortRows<
-  T extends {
-    uploadedAt: number;
-    agreementName: string;
-    chapter: string;
-    localUnion: string;
-    agreementType: string;
-    states: string;
-    effectiveFrom: string | null;
-  }
->(rows: T[], sort: AgreementSort): T[] {
+function sortRows(rows: AgreementRowResponse[], sort: AgreementSort): AgreementRowResponse[] {
   const copy = [...rows];
 
   copy.sort((a, b) => {
@@ -267,79 +249,55 @@ function sortRows<
   return copy;
 }
 
-type MatchedDocument = {
+type VisibleRepresentativeDocument = {
   id: string;
-  agreementId: string | null;
   filename: string;
-  uploadedAt: number;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
+  createdAt: Date;
+  chapter: string | null;
+  localUnion: string | null;
+  cbaType: string | null;
+  state: string | null;
   sharedToCbas: boolean;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-  collectionId: string;
-  collectionName: string;
-  snippet: string;
-  extractionState: string;
-  extractedAt: number | null;
+  effectiveFrom: Date | null;
+  effectiveTo: Date | null;
+  openaiFileId: string;
   kbId: string;
-  kbName: string;
-  textLength: number;
-  agreementName: string;
+  kb: {
+    id: string;
+    name: string;
+  } | null;
 };
 
-type SearchResultRow = {
+type CanonicalAgreementListItem = {
   id: string;
-  agreementId: string | null;
-  agreementName: string;
-  collectionId: string;
-  filename: string;
-  uploadedAt: number;
-  chapter: string;
-  localUnion: string;
-  agreementType: string;
-  states: string;
-  sharedToCbas: boolean;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-  snippet: string;
-  extractionState: string;
-  extractedAt: number | null;
+  name: string;
+  sourceFilename: string | null;
+  chapter: string | null;
+  localUnion: string | null;
+  cbaType: string | null;
+  state: string | null;
+  effectiveFrom: Date | null;
+  effectiveTo: Date | null;
+  representative: VisibleRepresentativeDocument | null;
 };
 
-function chooseRepresentativeDocument(docs: MatchedDocument[]): MatchedDocument {
-  return [...docs].sort((a, b) => {
-    const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
-    const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
+function chooseRepresentativeDocument(
+  docs: VisibleRepresentativeDocument[]
+): VisibleRepresentativeDocument | null {
+  if (docs.length === 0) return null;
+
+  const sorted = [...docs].sort((a, b) => {
+    const aIsNational = a.kbId === SHARED_CBAS_KB_ID;
+    const bIsNational = b.kbId === SHARED_CBAS_KB_ID;
 
     if (aIsNational !== bIsNational) {
       return aIsNational ? 1 : -1;
     }
 
-    return b.uploadedAt - a.uploadedAt;
-  })[0];
-}
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
 
-function chooseSnippetDocument(docs: MatchedDocument[]): MatchedDocument {
-  return [...docs].sort((a, b) => {
-    const aIsNational = a.collectionId === SHARED_CBAS_KB_ID;
-    const bIsNational = b.collectionId === SHARED_CBAS_KB_ID;
-
-    if (aIsNational !== bIsNational) {
-      return aIsNational ? 1 : -1;
-    }
-
-    const aHasSnippet = a.snippet.trim().length > 0 ? 1 : 0;
-    const bHasSnippet = b.snippet.trim().length > 0 ? 1 : 0;
-
-    if (aHasSnippet !== bHasSnippet) {
-      return bHasSnippet - aHasSnippet;
-    }
-
-    return b.uploadedAt - a.uploadedAt;
-  })[0];
+  return sorted[0] ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -352,7 +310,6 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
 
-    const q = normalizeQuery(searchParams.get("q"));
     const agreementNameQuery = normalizeValue(searchParams.get("agreementName"));
     const selectedChapters = parseMultiParam(searchParams, "chapters");
     const selectedLocalUnions = parseMultiParam(searchParams, "localUnions");
@@ -372,18 +329,6 @@ export async function GET(request: NextRequest) {
       MAX_PAGE_SIZE
     );
 
-    if (!q) {
-      return NextResponse.json({
-        query: "",
-        count: 0,
-        page: 1,
-        pageSize,
-        totalPages: 1,
-        sort,
-        results: [],
-      });
-    }
-
     const userMemberships = session.user.memberships ?? [];
     const isUserSystemAdmin = isSystemAdmin(session);
 
@@ -399,202 +344,171 @@ export async function GET(request: NextRequest) {
     const canManageAgreements =
       isUserSystemAdmin || normalizedManagedChapterNames.size > 0;
 
-    const documents = await prisma.document.findMany({
+    const agreements = await prisma.agreement.findMany({
       where: {
-        isCba: true,
         deletedAt: null,
-        textContent: {
-          is: {
-            extractedText: {
-              contains: q,
-              mode: "insensitive",
-            },
-          },
-        },
       },
       select: {
         id: true,
-        agreementId: true,
-        filename: true,
-        createdAt: true,
+        name: true,
+        sourceFilename: true,
         chapter: true,
         localUnion: true,
         cbaType: true,
         state: true,
-        sharedToCbas: true,
         effectiveFrom: true,
         effectiveTo: true,
-        kbId: true,
-        kb: {
-          select: {
-            id: true,
-            name: true,
+        documents: {
+          where: {
+            deletedAt: null,
+            isCba: true,
           },
-        },
-        agreement: {
           select: {
             id: true,
-            name: true,
-            sourceFilename: true,
+            filename: true,
+            createdAt: true,
             chapter: true,
             localUnion: true,
             cbaType: true,
             state: true,
+            sharedToCbas: true,
             effectiveFrom: true,
             effectiveTo: true,
+            openaiFileId: true,
+            kbId: true,
+            kb: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
-        },
-        textContent: {
-          select: {
-            extractedText: true,
-            extractionState: true,
-            extractedAt: true,
+          orderBy: {
+            createdAt: "desc",
           },
         },
       },
       orderBy: {
-        createdAt: "desc",
+        updatedAt: "desc",
       },
-      take: 500,
     });
 
-    const visibleDocuments = documents.filter((doc) => {
-      if (!includeNationalDatabase && doc.kbId === SHARED_CBAS_KB_ID) {
-        return false;
-      }
+    const visibleAgreements: CanonicalAgreementListItem[] = agreements
+      .map((agreement) => {
+        const visibleDocs = agreement.documents.filter((doc) => {
+          if (!includeNationalDatabase && doc.kbId === SHARED_CBAS_KB_ID) {
+            return false;
+          }
 
-      if (isUserSystemAdmin) return true;
-      if (!canManageAgreements) return true;
-      if (doc.kbId === SHARED_CBAS_KB_ID) return true;
+          if (isUserSystemAdmin) return true;
+          if (!canManageAgreements) return true;
+          if (doc.kbId === SHARED_CBAS_KB_ID) return true;
 
-      return normalizedManagedChapterNames.has(normalizeKey(doc.chapter));
-    });
+          return normalizedManagedChapterNames.has(normalizeKey(doc.chapter));
+        });
 
-    const mappedDocuments: MatchedDocument[] = visibleDocuments.map((doc) => {
-      const filename = doc.filename ?? "";
-      const chapter =
-        normalizeValue(doc.agreement?.chapter) || normalizeValue(doc.chapter) || "—";
+        const representative = chooseRepresentativeDocument(visibleDocs);
+
+        return {
+          id: agreement.id,
+          name: agreement.name,
+          sourceFilename: agreement.sourceFilename,
+          chapter: agreement.chapter,
+          localUnion: agreement.localUnion,
+          cbaType: agreement.cbaType,
+          state: agreement.state,
+          effectiveFrom: agreement.effectiveFrom,
+          effectiveTo: agreement.effectiveTo,
+          representative,
+        };
+      })
+      .filter((agreement) => agreement.representative !== null);
+
+    const rows: AgreementRowResponse[] = visibleAgreements.map((agreement) => {
+      const representative = agreement.representative!;
+      const chapter = normalizeValue(agreement.chapter) || normalizeValue(representative.chapter) || "—";
       const localUnion =
-        normalizeValue(doc.agreement?.localUnion) || normalizeValue(doc.localUnion) || "—";
+        normalizeValue(agreement.localUnion) || normalizeValue(representative.localUnion) || "—";
       const agreementType =
-        normalizeValue(doc.agreement?.cbaType) || normalizeValue(doc.cbaType) || "—";
+        normalizeValue(agreement.cbaType) || normalizeValue(representative.cbaType) || "—";
       const states =
-        normalizeValue(doc.agreement?.state) || normalizeValue(doc.state) || "—";
-
-      const effectiveFrom = (doc.agreement?.effectiveFrom ?? doc.effectiveFrom)
-        ? (doc.agreement?.effectiveFrom ?? doc.effectiveFrom)!.toISOString()
-        : null;
-      const effectiveTo = (doc.agreement?.effectiveTo ?? doc.effectiveTo)
-        ? (doc.agreement?.effectiveTo ?? doc.effectiveTo)!.toISOString()
-        : null;
-
+        normalizeValue(agreement.state) || normalizeValue(representative.state) || "—";
+      const filename =
+        normalizeValue(representative.filename) ||
+        normalizeValue(agreement.sourceFilename) ||
+        "(unknown)";
       const agreementName =
-        normalizeValue(doc.agreement?.name) ||
-        normalizeValue(doc.kb?.name) ||
-        normalizeValue(filename) ||
-        "(untitled agreement)";
+        normalizeValue(agreement.name) || "(untitled agreement)";
+      const fileUrl = representative.id
+        ? `/api/agreements/${encodeURIComponent(representative.id)}/file`
+        : null;
 
       return {
-        id: doc.id,
-        agreementId: doc.agreementId,
-        filename,
-        uploadedAt: Math.floor(doc.createdAt.getTime() / 1000),
+        id: agreement.id,
+        agreementName,
         chapter,
         localUnion,
         agreementType,
         states,
-        sharedToCbas: Boolean(doc.sharedToCbas),
-        effectiveFrom,
-        effectiveTo,
-        collectionId: doc.kb?.id ?? "",
-        collectionName: doc.kb?.name ?? "",
-        snippet: createSnippet(doc.textContent?.extractedText ?? "", q),
-        extractionState: doc.textContent?.extractionState ?? "missing",
-        extractedAt: doc.textContent?.extractedAt
-          ? Math.floor(doc.textContent.extractedAt.getTime() / 1000)
+        filename,
+        uploadedAt: Math.floor(representative.createdAt.getTime() / 1000),
+        status: "stored",
+        collectionId: representative.kb?.id ?? "",
+        collectionName: representative.kb?.name ?? "",
+        fileId: representative.openaiFileId ?? "",
+        fileUrl,
+        sharedToCbas: Boolean(representative.sharedToCbas),
+        effectiveFrom: (agreement.effectiveFrom ?? representative.effectiveFrom)
+          ? (agreement.effectiveFrom ?? representative.effectiveFrom)!.toISOString()
           : null,
-        kbId: doc.kb?.id ?? "",
-        kbName: doc.kb?.name ?? "",
-        textLength: doc.textContent?.extractedText?.length ?? 0,
-        agreementName,
+        effectiveTo: (agreement.effectiveTo ?? representative.effectiveTo)
+          ? (agreement.effectiveTo ?? representative.effectiveTo)!.toISOString()
+          : null,
       };
     });
 
-    const grouped = new Map<string, MatchedDocument[]>();
+    const chapterOptions = toOptionArray(
+      rows
+        .map((row) => normalizeValue(row.chapter))
+        .filter((value) => value && value !== "—")
+    );
 
-    for (const doc of mappedDocuments) {
-      const fallbackKey = buildAgreementDedupKey({
-        filename: doc.filename,
-        chapter: doc.chapter,
-        localUnion: doc.localUnion,
-        agreementType: doc.agreementType,
-        states: doc.states,
-        effectiveFrom: doc.effectiveFrom,
-        effectiveTo: doc.effectiveTo,
-      });
+    const localUnionOptions = toOptionArray(
+      rows.flatMap((row) =>
+        splitCommaSeparated(row.localUnion === "—" ? "" : row.localUnion)
+      )
+    );
 
-      const groupKey = doc.agreementId ? `agreement:${doc.agreementId}` : `orphan:${fallbackKey}`;
+    const agreementTypeOptions = toOptionArray(
+      rows
+        .map((row) => normalizeValue(row.agreementType))
+        .filter((value) => value && value !== "—")
+    );
 
-      if (!grouped.has(groupKey)) {
-        grouped.set(groupKey, []);
-      }
-
-      grouped.get(groupKey)!.push(doc);
-    }
-
-    const groupedResults: SearchResultRow[] = Array.from(grouped.entries()).map(
-      ([groupKey, docs]) => {
-        const representative = chooseRepresentativeDocument(docs);
-        const snippetDoc = chooseSnippetDocument(docs);
-
-        const canonicalAgreementId = representative.agreementId ?? null;
-        const responseId = canonicalAgreementId ?? groupKey;
-
-        return {
-          id: responseId,
-          agreementId: canonicalAgreementId,
-          agreementName: representative.agreementName,
-          collectionId: representative.collectionId,
-          filename: representative.filename,
-          uploadedAt: representative.uploadedAt,
-          chapter: representative.chapter,
-          localUnion: representative.localUnion,
-          agreementType: representative.agreementType,
-          states: representative.states,
-          sharedToCbas: representative.sharedToCbas,
-          effectiveFrom: representative.effectiveFrom,
-          effectiveTo: representative.effectiveTo,
-          snippet: snippetDoc.snippet,
-          extractionState: snippetDoc.extractionState,
-          extractedAt: snippetDoc.extractedAt,
-        };
-      }
+    const stateOptions = toOptionArray(
+      rows.flatMap((row) =>
+        splitCommaSeparated(row.states === "—" ? "" : row.states)
+      )
     );
 
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const filteredResults = groupedResults.filter((row) => {
+    const filteredRows = rows.filter((row) => {
       const matchesName =
         !agreementNameQuery ||
         row.agreementName.toLowerCase().includes(agreementNameQuery.toLowerCase());
 
-      const matchesChapterFilter = matchesSingle(
-        normalizeValue(row.chapter) || "—",
-        selectedChapters
-      );
-
+      const matchesChapterFilter = matchesSingle(row.chapter, selectedChapters);
       const matchesLocalUnionFilter = matchesMultiValue(
-        normalizeValue(row.localUnion),
+        row.localUnion === "—" ? "" : row.localUnion,
         selectedLocalUnions
       );
-
       const matchesAgreementTypeFilter = matchesSingle(
-        normalizeValue(row.agreementType) || "—",
+        row.agreementType,
         selectedAgreementTypes
       );
-
       const matchesStateFilter = matchesMultiValue(
-        normalizeValue(row.states),
+        row.states === "—" ? "" : row.states,
         selectedStates
       );
 
@@ -622,22 +536,29 @@ export async function GET(request: NextRequest) {
       );
     });
 
-    const sortedResults = sortRows(filteredResults, sort);
+    const sortedRows = sortRows(filteredRows, sort);
 
-    const count = sortedResults.length;
-    const totalPages = Math.max(1, Math.ceil(count / pageSize));
+    const filteredRowsCount = filteredRows.length;
+    const totalRows = rows.length;
+    const totalPages = Math.max(1, Math.ceil(filteredRowsCount / pageSize));
     const safePage = Math.min(page, totalPages);
     const startIndex = (safePage - 1) * pageSize;
-    const results = sortedResults.slice(startIndex, startIndex + pageSize);
+    const pagedRows = sortedRows.slice(startIndex, startIndex + pageSize);
 
     return NextResponse.json({
-      query: q,
-      count,
+      rows: pagedRows,
+      totalRows,
+      filteredRowsCount,
       page: safePage,
       pageSize,
       totalPages,
       sort,
-      results,
+      filterOptions: {
+        chapterOptions,
+        localUnionOptions,
+        agreementTypeOptions,
+        stateOptions,
+      },
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Server error";

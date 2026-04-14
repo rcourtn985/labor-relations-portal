@@ -4,6 +4,7 @@ import { toFile } from "openai/uploads";
 import { prisma } from "@/lib/prisma";
 import { storeOriginalFile } from "@/lib/storage";
 import { extractTextFromFile } from "@/lib/text-extraction";
+import { buildCanonicalAgreementKey } from "@/lib/agreements/canonical";
 import {
   getActiveChapterAdminChapterIds,
   isSystemAdmin,
@@ -50,7 +51,11 @@ function getExtension(filename: string): string {
 function parseDate(value: string | null | undefined): Date | null {
   if (!value || !value.trim()) return null;
   const d = new Date(value.trim());
-  return isNaN(d.getTime()) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function normalizeValue(value: string | null | undefined): string {
+  return (value ?? "").trim();
 }
 
 async function getVectorStoreAttachedFilenames(
@@ -90,6 +95,77 @@ type PreparedDocument = {
   extractedText: string;
   extractionState: string;
 };
+
+async function getOrCreateAgreement(params: {
+  kbName: string;
+  filename: string;
+  chapter: string | null;
+  localUnion: string | null;
+  cbaType: string | null;
+  state: string | null;
+  effectiveFrom: Date | null;
+  effectiveTo: Date | null;
+}): Promise<string | null> {
+  const canonicalKey = buildCanonicalAgreementKey({
+    filename: params.filename,
+    chapter: params.chapter,
+    localUnion: params.localUnion,
+    cbaType: params.cbaType,
+    state: params.state,
+    effectiveFrom: params.effectiveFrom,
+    effectiveTo: params.effectiveTo,
+  });
+
+  if (!canonicalKey) {
+    return null;
+  }
+
+  const name = normalizeValue(params.kbName) || normalizeValue(params.filename) || "(untitled agreement)";
+
+  const existing = await prisma.agreement.findUnique({
+    where: { canonicalKey },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return existing.id;
+  }
+
+  try {
+    const created = await prisma.agreement.create({
+      data: {
+        name,
+        canonicalKey,
+        sourceFilename: normalizeValue(params.filename) || null,
+        chapter: normalizeValue(params.chapter) || null,
+        localUnion: normalizeValue(params.localUnion) || null,
+        cbaType: normalizeValue(params.cbaType) || null,
+        state: normalizeValue(params.state) || null,
+        effectiveFrom: params.effectiveFrom,
+        effectiveTo: params.effectiveTo,
+      },
+      select: { id: true },
+    });
+
+    return created.id;
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      const raced = await prisma.agreement.findUnique({
+        where: { canonicalKey },
+        select: { id: true },
+      });
+
+      return raced?.id ?? null;
+    }
+
+    throw error;
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -243,12 +319,36 @@ export async function POST(req: Request) {
       },
     });
 
+    const agreementIdByFilename = new Map<string, string | null>();
+
     for (const d of preparedDocs) {
+      if (!agreementIdByFilename.has(d.filename)) {
+        const agreementId = isCba
+          ? await getOrCreateAgreement({
+              kbName: trimmedName,
+              filename: d.filename,
+              chapter,
+              localUnion,
+              cbaType,
+              state,
+              effectiveFrom,
+              effectiveTo,
+            })
+          : null;
+
+        agreementIdByFilename.set(d.filename, agreementId);
+      }
+    }
+
+    for (const d of preparedDocs) {
+      const agreementId = agreementIdByFilename.get(d.filename) ?? null;
+
       try {
         await prisma.document.create({
           data: {
             ownerUserId: DEFAULT_OWNER_USER_ID,
             kbId: id,
+            agreementId,
             openaiFileId: d.openaiFileId,
             filename: d.filename,
             isCba,
@@ -335,11 +435,14 @@ export async function POST(req: Request) {
           file_id: d.openaiFileId,
         });
 
+        const agreementId = agreementIdByFilename.get(d.filename) ?? null;
+
         try {
           await prisma.document.create({
             data: {
               ownerUserId: DEFAULT_OWNER_USER_ID,
               kbId: allCbasKbId,
+              agreementId,
               openaiFileId: d.openaiFileId,
               filename: d.filename,
               isCba: true,

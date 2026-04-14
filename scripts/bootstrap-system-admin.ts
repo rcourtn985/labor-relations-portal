@@ -6,7 +6,7 @@ async function main() {
   const firstName = "Ryan";
   const lastName = "Courtney";
   const name = "Ryan Courtney";
-  const plainPassword = "********";
+  const plainPassword = "****";
 
   if (!email) {
     throw new Error("Missing email.");

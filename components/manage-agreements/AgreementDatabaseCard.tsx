@@ -2,7 +2,7 @@
 
 import MultiSelectDropdown from "../home/MultiSelectDropdown";
 import { manageAgreementsStyles as styles } from "./styles";
-import { AgreementRow } from "./types";
+import { AgreementRow, AgreementSort } from "./types";
 
 type FilterOption = {
   value: string;
@@ -14,7 +14,9 @@ type AgreementDatabaseCardProps = {
   searchLoading: boolean;
   searchError: string | null;
   agreementRows: AgreementRow[];
+  agreementRowsTotal: number;
   filteredAgreementRows: AgreementRow[];
+  filteredAgreementRowsCount: number;
   agreementNameQuery: string;
   contentSearchQuery: string;
   chapterOptions: FilterOption[];
@@ -25,18 +27,26 @@ type AgreementDatabaseCardProps = {
   selectedLocalUnions: string[];
   selectedAgreementTypes: string[];
   selectedStates: string[];
-  nationalDatabaseFilter: "all" | "shared";
+  includeNationalDatabase: boolean;
   showExpired: boolean;
+  sort: AgreementSort;
   hideContentSearch?: boolean;
+  currentPage: number;
+  pageSize: number;
+  totalPages: number;
+  showPagination?: boolean;
+  isRefreshingAgreements?: boolean;
+  onToggleSort: (column: string) => void;
+  onPageChange: (page: number) => void;
   onAgreementNameQueryChange: (value: string) => void;
   onContentSearchQueryChange: (value: string) => void;
   onSelectedChaptersChange: (value: string[]) => void;
   onSelectedLocalUnionsChange: (value: string[]) => void;
   onSelectedAgreementTypesChange: (value: string[]) => void;
   onSelectedStatesChange: (value: string[]) => void;
-  onNationalDatabaseFilterChange: (value: "all" | "shared") => void;
+  onIncludeNationalDatabaseChange: (value: boolean) => void;
   onShowExpiredChange: (value: boolean) => void;
-  onClearFilters: () => void;
+  onClearAll: () => void;
   onRefreshAgreements: () => void;
   onOpenUploadedFile: (row: AgreementRow) => void;
   onOpenEditModal: (row: AgreementRow) => void;
@@ -110,12 +120,39 @@ function statusLabel(status: AgreementStatus): string {
   return "Expired";
 }
 
+function sortIndicator(
+  sort: AgreementSort,
+  ascValue: AgreementSort,
+  descValue: AgreementSort
+) {
+  if (sort === ascValue) return "▲";
+  if (sort === descValue) return "▼";
+  return "△";
+}
+
+function sortableHeaderStyle(active: boolean) {
+  return {
+    background: "none",
+    border: "none",
+    padding: 0,
+    font: "inherit",
+    fontWeight: 700,
+    color: active ? "var(--text)" : "inherit",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  } as const;
+}
+
 export default function AgreementDatabaseCard({
   filesLoading,
   searchLoading,
   searchError,
   agreementRows,
+  agreementRowsTotal,
   filteredAgreementRows,
+  filteredAgreementRowsCount,
   agreementNameQuery,
   contentSearchQuery,
   chapterOptions,
@@ -126,18 +163,26 @@ export default function AgreementDatabaseCard({
   selectedLocalUnions,
   selectedAgreementTypes,
   selectedStates,
-  nationalDatabaseFilter,
+  includeNationalDatabase,
   showExpired,
+  sort,
   hideContentSearch,
+  currentPage,
+  pageSize,
+  totalPages,
+  showPagination = true,
+  isRefreshingAgreements = false,
+  onToggleSort,
+  onPageChange,
   onAgreementNameQueryChange,
   onContentSearchQueryChange,
   onSelectedChaptersChange,
   onSelectedLocalUnionsChange,
   onSelectedAgreementTypesChange,
   onSelectedStatesChange,
-  onNationalDatabaseFilterChange,
+  onIncludeNationalDatabaseChange,
   onShowExpiredChange,
-  onClearFilters,
+  onClearAll,
   onRefreshAgreements,
   onOpenUploadedFile,
   onOpenEditModal,
@@ -148,6 +193,37 @@ export default function AgreementDatabaseCard({
 }: AgreementDatabaseCardProps) {
   const showActionsColumn =
     canManageAgreements || filteredAgreementRows.some((row) => Boolean(row.fileUrl));
+
+  const pageStart =
+    filteredAgreementRowsCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd =
+    filteredAgreementRowsCount === 0
+      ? 0
+      : Math.min(currentPage * pageSize, filteredAgreementRowsCount);
+
+  function handleSortMouseDown(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+  }
+
+  function renderSortButton(
+    label: string,
+    column: string,
+    isActive: boolean,
+    ascValue: AgreementSort,
+    descValue: AgreementSort
+  ) {
+    return (
+      <button
+        type="button"
+        onMouseDown={handleSortMouseDown}
+        onClick={() => onToggleSort(column)}
+        style={sortableHeaderStyle(isActive)}
+      >
+        {label}
+        <span>{sortIndicator(sort, ascValue, descValue)}</span>
+      </button>
+    );
+  }
 
   return (
     <div
@@ -185,11 +261,14 @@ export default function AgreementDatabaseCard({
             }}
           >
             <span style={styles.toolbarChip}>
-              All Agreements: {agreementRows.length}
+              All Agreements: {agreementRowsTotal}
             </span>
             <span style={styles.toolbarChip}>
-              Filtered: {filteredAgreementRows.length}
+              Filtered: {filteredAgreementRowsCount}
             </span>
+            {isRefreshingAgreements && (
+              <span style={styles.toolbarChip}>Refreshing…</span>
+            )}
 
             <button
               type="button"
@@ -201,10 +280,10 @@ export default function AgreementDatabaseCard({
 
             <button
               type="button"
-              onClick={onClearFilters}
+              onClick={onClearAll}
               style={styles.subtleBtn}
             >
-              Clear Filters
+              Clear All
             </button>
           </div>
         </div>
@@ -295,33 +374,6 @@ export default function AgreementDatabaseCard({
               disabled={filesLoading}
             />
           </div>
-
-          <div style={{ minWidth: 180 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: "var(--muted-strong)",
-                marginBottom: 6,
-              }}
-            >
-              National Database
-            </div>
-            <select
-              value={nationalDatabaseFilter}
-              onChange={(e) =>
-                onNationalDatabaseFilterChange(
-                  e.target.value as "all" | "shared"
-                )
-              }
-              style={{ ...styles.select, minWidth: 180, width: "100%" }}
-            >
-              <option value="all">All</option>
-              <option value="shared">Shared</option>
-            </select>
-          </div>
         </div>
 
         {!hideContentSearch && (
@@ -385,14 +437,47 @@ export default function AgreementDatabaseCard({
                   : searchLoading
                     ? "Searching agreement text…"
                     : contentSearchQuery.trim()
-                      ? "Showing agreements whose extracted text matches the current search."
+                      ? "Showing agreements whose extracted text matches the current filtered result set."
                       : ""}
               </div>
             )}
           </div>
         )}
 
-        <div style={{ marginTop: 14 }}>
+        <div
+          style={{
+            marginTop: 14,
+            display: "flex",
+            gap: 18,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={includeNationalDatabase}
+              onChange={(e) => onIncludeNationalDatabaseChange(e.target.checked)}
+            />
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--muted-strong)",
+              }}
+            >
+              Include National Database
+            </span>
+          </label>
+
           <label
             style={{
               display: "flex",
@@ -429,21 +514,23 @@ export default function AgreementDatabaseCard({
           overflowY: "visible",
         }}
       >
-        {filesLoading && (
-          <div style={{ padding: 16, color: "var(--muted)" }}>
-            Loading agreements…
-          </div>
-        )}
+        {filesLoading &&
+          agreementRowsTotal === 0 &&
+          filteredAgreementRows.length === 0 && (
+            <div style={{ padding: 16, color: "var(--muted)" }}>
+              Loading agreements…
+            </div>
+          )}
 
-        {!filesLoading && agreementRows.length === 0 && (
+        {!filesLoading && agreementRowsTotal === 0 && (
           <div style={{ padding: 16, color: "var(--muted)" }}>
             No agreements found yet.
           </div>
         )}
 
         {!filesLoading &&
-          agreementRows.length > 0 &&
-          filteredAgreementRows.length === 0 && (
+          agreementRowsTotal > 0 &&
+          filteredAgreementRowsCount === 0 && (
             <div style={{ padding: 16, color: "var(--muted)" }}>
               No agreements match the current filters.{" "}
               {!showExpired && (
@@ -472,113 +559,226 @@ export default function AgreementDatabaseCard({
           )}
 
         {!filesLoading && filteredAgreementRows.length > 0 && (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Agreement Name</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Effective Period</th>
-                <th style={styles.th}>Chapter</th>
-                <th style={styles.th}>Local Union(s)</th>
-                <th style={styles.th}>Agreement Type</th>
-                <th style={styles.th}>States</th>
-                <th style={styles.th}>National Database</th>
-                <th style={styles.th}>Uploaded</th>
-                {showActionsColumn ? <th style={styles.th}>Actions</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAgreementRows.map((row) => {
-                const agreementStatus = getAgreementStatus(row);
-                const isDeleting = isDeletingAgreementId === row.id;
-                const rowCanManage = canManageAgreement
-                  ? canManageAgreement(row)
-                  : canManageAgreements;
+          <>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "Agreement Name",
+                      "agreementName",
+                      sort === "name_asc" || sort === "name_desc",
+                      "name_asc",
+                      "name_desc"
+                    )}
+                  </th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "Effective Period",
+                      "effectiveFrom",
+                      sort === "effective_asc" || sort === "effective_desc",
+                      "effective_asc",
+                      "effective_desc"
+                    )}
+                  </th>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "Chapter",
+                      "chapter",
+                      sort === "chapter_asc" || sort === "chapter_desc",
+                      "chapter_asc",
+                      "chapter_desc"
+                    )}
+                  </th>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "Local Union(s)",
+                      "localUnion",
+                      sort === "local_union_asc" || sort === "local_union_desc",
+                      "local_union_asc",
+                      "local_union_desc"
+                    )}
+                  </th>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "Agreement Type",
+                      "agreementType",
+                      sort === "agreement_type_asc" ||
+                        sort === "agreement_type_desc",
+                      "agreement_type_asc",
+                      "agreement_type_desc"
+                    )}
+                  </th>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "States",
+                      "states",
+                      sort === "states_asc" || sort === "states_desc",
+                      "states_asc",
+                      "states_desc"
+                    )}
+                  </th>
+                  <th style={styles.th}>National Database</th>
+                  <th style={styles.th}>
+                    {renderSortButton(
+                      "Uploaded",
+                      "uploadedAt",
+                      sort === "uploaded_desc" || sort === "uploaded_asc",
+                      "uploaded_asc",
+                      "uploaded_desc"
+                    )}
+                  </th>
+                  {showActionsColumn ? <th style={styles.th}>Actions</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAgreementRows.map((row) => {
+                  const agreementStatus = getAgreementStatus(row);
+                  const isDeleting = isDeletingAgreementId === row.id;
+                  const rowCanManage = canManageAgreement
+                    ? canManageAgreement(row)
+                    : canManageAgreements;
 
-                return (
-                  <tr key={row.id}>
-                    <td style={styles.td}>
-                      <button
-                        type="button"
-                        onClick={() => onOpenUploadedFile(row)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
-                          color: "var(--accent)",
-                          textDecoration: "underline",
-                          cursor: "pointer",
-                          font: "inherit",
-                          fontWeight: 600,
-                          boxShadow: "none",
-                          textAlign: "left",
-                        }}
-                        title={`Open ${row.filename}`}
-                      >
-                        {row.agreementName}
-                      </button>
-                    </td>
-                    <td style={styles.td}>
-                      {agreementStatus ? (
-                        <span style={statusBadgeStyle(agreementStatus)}>
-                          {statusLabel(agreementStatus)}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
-                      {row.effectiveFrom || row.effectiveTo
-                        ? `${formatDateShort(row.effectiveFrom)} – ${formatDateShort(row.effectiveTo)}`
-                        : "—"}
-                    </td>
-                    <td style={styles.td}>{row.chapter}</td>
-                    <td style={styles.td}>{row.localUnion}</td>
-                    <td style={styles.td}>{row.agreementType}</td>
-                    <td style={styles.td}>{row.states}</td>
-                    <td style={styles.td}>
-                      <span style={nationalBadgeStyle(row.sharedToCbas)}>
-                        {row.sharedToCbas ? "Shared" : "Not Shared"}
-                      </span>
-                    </td>
-                    <td style={styles.td}>
-                      {row.uploadedAt
-                        ? new Date(row.uploadedAt * 1000).toLocaleString()
-                        : ""}
-                    </td>
-                    {showActionsColumn ? (
+                  return (
+                    <tr key={row.id}>
                       <td style={styles.td}>
-                        {rowCanManage ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpenEditModal(row)}
-                            disabled={isDeleting}
-                            style={{
-                              ...styles.subtleBtn,
-                              ...(isDeleting ? styles.btnDisabled : null),
-                            }}
-                          >
-                            Edit
-                          </button>
-                        ) : row.fileUrl ? (
-                          <a
-                            href={row.fileUrl}
-                            download={row.filename || undefined}
-                            style={styles.subtleBtn}
-                            title={`Download ${row.filename}`}
-                          >
-                            Download
-                          </a>
-                        ) : (
-                          <span style={{ color: "var(--muted)", fontSize: 13 }}>
-                            Unavailable
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => onOpenUploadedFile(row)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            color: "var(--accent)",
+                            textDecoration: "underline",
+                            cursor: "pointer",
+                            font: "inherit",
+                            fontWeight: 600,
+                            boxShadow: "none",
+                            textAlign: "left",
+                          }}
+                          title={`Open ${row.filename}`}
+                        >
+                          {row.agreementName}
+                        </button>
                       </td>
-                    ) : null}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td style={styles.td}>
+                        {agreementStatus ? (
+                          <span style={statusBadgeStyle(agreementStatus)}>
+                            {statusLabel(agreementStatus)}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td style={{ ...styles.td, whiteSpace: "nowrap" }}>
+                        {row.effectiveFrom || row.effectiveTo
+                          ? `${formatDateShort(row.effectiveFrom)} – ${formatDateShort(row.effectiveTo)}`
+                          : "—"}
+                      </td>
+                      <td style={styles.td}>{row.chapter}</td>
+                      <td style={styles.td}>{row.localUnion}</td>
+                      <td style={styles.td}>{row.agreementType}</td>
+                      <td style={styles.td}>{row.states}</td>
+                      <td style={styles.td}>
+                        <span style={nationalBadgeStyle(row.sharedToCbas)}>
+                          {row.sharedToCbas ? "Shared" : "Not Shared"}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        {row.uploadedAt
+                          ? new Date(row.uploadedAt * 1000).toLocaleString()
+                          : ""}
+                      </td>
+                      {showActionsColumn ? (
+                        <td style={styles.td}>
+                          {rowCanManage ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenEditModal(row)}
+                              disabled={isDeleting}
+                              style={{
+                                ...styles.subtleBtn,
+                                ...(isDeleting ? styles.btnDisabled : null),
+                              }}
+                            >
+                              Edit
+                            </button>
+                          ) : row.fileUrl ? (
+                            <a
+                              href={row.fileUrl}
+                              download={row.filename || undefined}
+                              style={styles.subtleBtn}
+                              title={`Download ${row.filename}`}
+                            >
+                              Download
+                            </a>
+                          ) : (
+                            <span style={{ color: "var(--muted)", fontSize: 13 }}>
+                              Unavailable
+                            </span>
+                          )}
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {showPagination && totalPages > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "14px 16px 0",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ color: "var(--muted-strong)", fontSize: 13 }}>
+                  Showing {pageStart}-{pageEnd} of {filteredAgreementRowsCount}
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => onPageChange(currentPage - 1)}
+                    disabled={currentPage <= 1}
+                    style={{
+                      ...styles.subtleBtn,
+                      ...(currentPage <= 1 ? styles.btnDisabled : null),
+                    }}
+                  >
+                    Previous
+                  </button>
+
+                  <span
+                    style={{
+                      color: "var(--muted-strong)",
+                      fontSize: 13,
+                      minWidth: 96,
+                      textAlign: "center",
+                    }}
+                  >
+                    Page {currentPage} of {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => onPageChange(currentPage + 1)}
+                    disabled={currentPage >= totalPages}
+                    style={{
+                      ...styles.subtleBtn,
+                      ...(currentPage >= totalPages ? styles.btnDisabled : null),
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
